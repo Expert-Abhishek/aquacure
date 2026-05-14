@@ -13,7 +13,8 @@ pnpm dev
 # or
 bun dev
 ```
-
+<!-- 16Pq3hviILIce3ZQ9iMui2QjZgQ4-JAA-itRAKHu4YC8 sheetid -->
+<!-- AIzaSyAREcjS2RERBjhcMiN_SF2hIgMmjZ0H9Cw apikey -->
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.

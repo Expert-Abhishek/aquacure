@@ -53,8 +53,8 @@ interface SelectOption { value: string; label: string; }
 const ADMIN_USER: AdminUser = { username: "admin", password: "admin123", name: "Admin" };
 
 const TECHNICIANS: Technician[] = [
-  { id: "ravi",   name: "Ravi",   phone: "919203943921" },
-  { id: "deepak", name: "Deepak", phone: "919283029302" },
+  { id: "ravi",   name: "Ravi",   phone: "9971035511" },
+  { id: "deepak", name: "Deepak", phone: "9910235511" },
 ];
 
 const TASK_TYPES: string[] = ["New RO", "Per Visit", "Quotation", "Complaint"];
