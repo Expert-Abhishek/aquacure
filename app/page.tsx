@@ -591,7 +591,8 @@ const fetchSheet = async () => {
                 <table className="min-w-full text-sm text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-                      {["Name","Address","Phone","Type","Technician","Status","Actions"].map((h) => (
+                      {["Name","Address","Phone",
+                      "Comment","Type","Technician","Status","Actions"].map((h) => (
                         <th key={h} className="px-4 py-3 border-b border-slate-200 font-semibold whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
