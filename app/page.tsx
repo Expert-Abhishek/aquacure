@@ -97,7 +97,7 @@ function parseSheetValues(values: string[][], sheetId: string): Omit<Customer, "
     return {
       name:     m["name"] || m["customer"] || "",
       address:  m["address"] || "",
-      phone:    m["phone"] || m["mobile"] || m["contact"] || "",
+      phone:    m["telephone"] || m["mobile"] || m["contact"] || "",
       amcMonth: m["month of new amc"] || m["amc month"] || m["amc"] || "",
       amcPrice: m["price"] || m["price of amc"] || m["amc price"] || "",
       _sheetId: sheetId,
