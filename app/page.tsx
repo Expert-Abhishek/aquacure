@@ -38,6 +38,7 @@ interface Task {
   address: string;
   phone: string;
   type: string;
+  comment: string;
   techId: string;
   status: StatusKey;
   createdAt: Timestamp | null;
@@ -53,8 +54,8 @@ interface SelectOption { value: string; label: string; }
 const ADMIN_USER: AdminUser = { username: "admin", password: "admin123", name: "Admin" };
 
 const TECHNICIANS: Technician[] = [
-  { id: "ravi",   name: "Ravi",   phone: "919971035511" },
-  { id: "deepak", name: "Deepak", phone: "919910235511" },
+  { id: "ravi",   name: "Ravi",   phone: "919958877474" },
+  { id: "deepak", name: "Deepak", phone: "919711581142" },
 ];
 
 const TASK_TYPES: string[] = ["New RO", "Per Visit", "Quotation", "Complaint"];
@@ -106,7 +107,7 @@ function parseSheetValues(values: string[][], sheetId: string): Omit<Customer, "
 }
 
 function buildWhatsAppUrl(techPhone: string, task: Task): string {
-  const msg = `*New Task Assigned*\nName: ${task.name}\nAddress: ${task.address}\nPhone: ${task.phone}\nType: ${task.type}`;
+  const msg = `*New Task Assigned*\nName: ${task.name}\nAddress: ${task.address}\nPhone: ${task.phone}\nType: ${task.type}${task.comment ? `\nNote: ${task.comment}` : ""}`;
   return `https://wa.me/${techPhone}?text=${encodeURIComponent(msg)}`;
 }
 
@@ -194,6 +195,7 @@ export default function Home() {
   const [taskType, setTaskType]       = useState<string>(TASK_TYPES[0]);
   const [taskTech, setTaskTech]       = useState<string>(TECHNICIANS[0].id);
   const [taskError, setTaskError]     = useState<string>("");
+  const [taskComment, setTaskComment] = useState<string>("");
 
   // UI
   const [tab, setTab]                   = useState<string>("tasks");
@@ -226,6 +228,7 @@ useEffect(() => {
             address:   d.data().address   ?? "",
             phone:     d.data().phone     ?? "",
             type:      d.data().type      ?? "",
+            comment: d.data().comment ?? "",
             techId:    d.data().techId    ?? "",
             status:    (d.data().status   ?? STATUS.PENDING) as StatusKey,
             createdAt: d.data().createdAt ?? null,
@@ -348,6 +351,7 @@ const fetchSheet = async () => {
         name:      taskName.trim(),
         address:   taskAddress.trim(),
         phone:     taskPhone.trim(),
+          comment: taskComment.trim(),
         type:      taskType,
         techId:    taskTech,
         status:    STATUS.PENDING,
@@ -518,6 +522,7 @@ const fetchSheet = async () => {
                 <Input label="Customer Name" value={taskName}    onChange={setTaskName}    placeholder="Full name" />
                 <Input label="Phone"         value={taskPhone}   onChange={setTaskPhone}   placeholder="Mobile number" />
                 <Input label="Address"       value={taskAddress} onChange={setTaskAddress} placeholder="Full address" />
+                <Input label="Comment / Notes" value={taskComment} onChange={setTaskComment} placeholder="Optional note for the technician…" />
                 <Select label="Type" value={taskType} onChange={setTaskType}
                   options={TASK_TYPES.map((t) => ({ value: t, label: t }))} />
                 <Select label="Assign Technician" value={taskTech} onChange={setTaskTech}
@@ -570,6 +575,9 @@ const fetchSheet = async () => {
                       <div className="flex flex-wrap gap-2 text-xs text-slate-600">
                         <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">{task.phone}</span>
                         <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">{task.type}</span>
+                        {task.comment && (
+  <p className="text-xs text-slate-500 italic">💬 {task.comment}</p>
+)}
                         <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">👷 {tech?.name}</span>
                       </div>
                       <TaskActions task={task} onStatus={changeStatus} onDelete={deleteTask} />
@@ -600,6 +608,7 @@ const fetchSheet = async () => {
                           <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{task.name}</td>
                           <td className="px-4 py-3 text-slate-600 max-w-xs">{task.address}</td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{task.phone}</td>
+                          <td className="px-4 py-3 text-slate-500 text-xs max-w-xs">{task.comment || "—"}</td>
                           <td className="px-4 py-3">
                             <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">{task.type}</span>
                           </td>
