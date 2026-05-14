@@ -71,6 +71,10 @@ const STATUS_LABEL: Record<StatusKey, StatusMeta> = {
   done:       { label: "Done",        bg: "bg-emerald-100", text: "text-emerald-700" },
 };
 
+// ─── Hardcoded Sheet Config ───────────────────────────────────────────────────
+const SHEET_API_KEY = "AIzaSyAREcjS2RERBjhcMiN_SF2hIgMmjZ0H9Cw";
+const SHEET_ID_CONST = "16Pq3hviILIce3ZQ9iMui2QjZgQ4-JAA-itRAKHu4YC8";
+const SHEET_RANGE = "customer";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normalizeSheetId(value: string): string {
@@ -173,9 +177,7 @@ export default function Home() {
   const [authError, setAuthError] = useState<string>("");
 
   // Sheet settings (localStorage only — contains API key)
-  const [sheetId, setSheetId] = useState<string>("");
-  const [apiKey, setApiKey]   = useState<string>("");
-  const [range, setRange]     = useState<string>("Sheet1!A1:F200");
+
   const [sheetLoading, setSheetLoading] = useState<boolean>(false);
   const [sheetError, setSheetError]     = useState<string>("");
 
@@ -202,15 +204,14 @@ export default function Home() {
   // ── Load localStorage settings ─────────────────────────────────────────────
   useEffect(() => {
     setLoggedIn(loadSetting("wpd-loggedIn", "") === "true");
-    setSheetId(loadSetting("wpd-sheetId", ""));
-    setApiKey(loadSetting("wpd-apiKey", ""));
-    setRange(loadSetting("wpd-range", "Sheet1!A1:F200"));
-  }, []);
 
+  }, []);
+// Auto-load sheet when user is logged in
+useEffect(() => {
+  if (loggedIn) fetchSheet();
+}, [loggedIn]); // runs on login and on page open if already logged in
   useEffect(() => { saveSetting("wpd-loggedIn", String(loggedIn)); }, [loggedIn]);
-  useEffect(() => { saveSetting("wpd-sheetId", sheetId); }, [sheetId]);
-  useEffect(() => { saveSetting("wpd-apiKey", apiKey); }, [apiKey]);
-  useEffect(() => { saveSetting("wpd-range", range); }, [range]);
+
 
   // ── Firestore: real-time task listener ────────────────────────────────────
   useEffect(() => {
@@ -295,49 +296,43 @@ export default function Home() {
   };
 
   // ── Sheet → Firestore ──────────────────────────────────────────────────────
-  const fetchSheet = async () => {
-    setSheetError(""); setSheetLoading(true);
-    try {
-      const id = normalizeSheetId(sheetId);
-      if (!id)            throw new Error("Enter a valid Sheet ID or URL.");
-      if (!apiKey.trim()) throw new Error("Enter your Google API key.");
+const fetchSheet = async () => {
+  setSheetError(""); setSheetLoading(true);
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_CONST}/values/${encodeURIComponent(SHEET_RANGE)}?majorDimension=ROWS&key=${SHEET_API_KEY}`,
+    );
+    const body = await res.json().catch(() => ({})) as {
+      values?: string[][];
+      error?: { message?: string };
+    };
+    if (!res.ok) throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+    if (!Array.isArray(body.values)) throw new Error("No data returned. Check sheet visibility and range.");
 
-      const res = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(range)}?majorDimension=ROWS&key=${apiKey}`,
-      );
-      const body = await res.json().catch(() => ({})) as {
-        values?: string[][];
-        error?: { message?: string };
-      };
-      if (!res.ok) throw new Error(body.error?.message ?? `HTTP ${res.status}`);
-      if (!Array.isArray(body.values)) throw new Error("No data returned. Check sheet visibility and range.");
+    const parsed = parseSheetValues(body.values, SHEET_ID_CONST);
 
-      const parsed = parseSheetValues(body.values, id);
+    const oldSnap = await getDocs(collection(db, "customers"));
+    const batch   = writeBatch(db);
+    oldSnap.docs.forEach((d) => batch.delete(d.ref));
+    parsed.forEach((c) => batch.set(doc(collection(db, "customers")), c));
+    await batch.commit();
 
-      // Replace all customers in Firestore with new import
-      const oldSnap = await getDocs(collection(db, "customers"));
-      const batch   = writeBatch(db);
-      oldSnap.docs.forEach((d) => batch.delete(d.ref));
-      parsed.forEach((c) => batch.set(doc(collection(db, "customers")), c));
-      await batch.commit();
-
-      // Refresh local state
-      const newSnap = await getDocs(collection(db, "customers"));
-      setSheetCustomers(
-        newSnap.docs.map((d) => ({
-          id:       d.id,
-          name:     d.data().name      ?? "",
-          address:  d.data().address   ?? "",
-          phone:    d.data().phone     ?? "",
-          amcMonth: d.data().amcMonth  ?? "",
-          amcPrice: d.data().amcPrice  ?? "",
-        })),
-      );
-    } catch (e) {
-      setSheetError(e instanceof Error ? e.message : "Unknown error");
-    }
-    setSheetLoading(false);
-  };
+    const newSnap = await getDocs(collection(db, "customers"));
+    setSheetCustomers(
+      newSnap.docs.map((d) => ({
+        id:       d.id,
+        name:     d.data().name      ?? "",
+        address:  d.data().address   ?? "",
+        phone:    d.data().phone     ?? "",
+        amcMonth: d.data().amcMonth  ?? "",
+        amcPrice: d.data().amcPrice  ?? "",
+      })),
+    );
+  } catch (e) {
+    setSheetError(e instanceof Error ? e.message : "Unknown error");
+  }
+  setSheetLoading(false);
+};
 
   // ── Task CRUD ──────────────────────────────────────────────────────────────
   const fillFromCustomer = (c: Customer) => {
@@ -472,31 +467,24 @@ export default function Home() {
         </div>
 
         {/* Sheet Import Tab */}
-        {tab === "import" && (
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Google Sheets Import</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Customers are saved to Firestore and available across all devices. Expected headers: name, address, phone, amc month, price.
-            </p>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <Input label="Sheet ID or URL" value={sheetId} onChange={setSheetId} placeholder="Paste Sheet URL or ID" />
-              <Input label="Google API Key (saved locally only)" value={apiKey} onChange={setApiKey} placeholder="Your API key" />
-              <div className="sm:col-span-2">
-                <Input label="Range" value={range} onChange={setRange} placeholder="Sheet1!A1:F200" />
-              </div>
-            </div>
-            <div className="mt-4 flex items-center gap-4">
-              <button type="button" onClick={fetchSheet} disabled={sheetLoading}
-                className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50">
-                {sheetLoading ? "Loading…" : "Load Sheet"}
-              </button>
-              {sheetCustomers.length > 0 && (
-                <span className="text-sm text-emerald-600 font-medium">✓ {sheetCustomers.length} customers in Firestore</span>
-              )}
-            </div>
-            {sheetError && <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{sheetError}</div>}
-          </section>
-        )}
+       {tab === "import" && (
+  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <h2 className="text-lg font-semibold">Google Sheets Import</h2>
+    <p className="mt-1 text-sm text-slate-500">
+      Customers are synced from Google Sheets into Firestore. Expected headers: name, address, phone, amc month, price.
+    </p>
+    <div className="mt-4 flex items-center gap-4">
+      <button type="button" onClick={fetchSheet} disabled={sheetLoading}
+        className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50">
+        {sheetLoading ? "Loading…" : "↻ Reload Sheet"}
+      </button>
+      {sheetCustomers.length > 0 && (
+        <span className="text-sm text-emerald-600 font-medium">✓ {sheetCustomers.length} customers loaded</span>
+      )}
+    </div>
+    {sheetError && <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{sheetError}</div>}
+  </section>
+)}
 
         {/* Tasks Tab */}
         {tab === "tasks" && (
