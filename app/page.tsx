@@ -42,6 +42,9 @@ interface Task {
   techId: string;
   status: StatusKey;
   createdAt: Timestamp | null;
+  amcMonth: string;      // ← NEW: store AMC month from sheet
+  amcPrice: string;      // ← NEW: store 2026 AMC price from sheet
+  sharePhone: boolean;   // ← NEW: admin toggle to share phone with tech
 }
 
 type StatusKey = "pending" | "inprogress" | "done";
@@ -71,7 +74,6 @@ const STATUS_LABEL: Record<StatusKey, StatusMeta> = {
   inprogress: { label: "In Progress", bg: "bg-blue-100",    text: "text-blue-700"    },
   done:       { label: "Done",        bg: "bg-emerald-100", text: "text-emerald-700" },
 };
-
 // ─── Hardcoded Sheet Config ───────────────────────────────────────────────────
 const SHEET_API_KEY = "AIzaSyAREcjS2RERBjhcMiN_SF2hIgMmjZ0H9Cw";
 const SHEET_ID_CONST = "16Pq3hviILIce3ZQ9iMui2QjZgQ4-JAA-itRAKHu4YC8";
@@ -99,16 +101,41 @@ function parseSheetValues(values: string[][], sheetId: string): Omit<Customer, "
       name:     m["name"] || m["customer"] || "",
       address:  m["address"] || "",
       phone:    m["telephone"] || m["mobile"] || m["contact"] || "",
-      amcMonth: m["month of new amc"] || m["amc month"] || m["amc"] || "",
-      amcPrice: m["price"] || m["price of amc"] || m["amc price"] || "",
+      amcMonth: m["month of new amc"] || m["month"] || m["amc"] || "",
+      amcPrice: m["2026"] || m["price of amc"] || m["amc price"] || "",
       _sheetId: sheetId,
     } as Omit<Customer, "id"> & { _sheetId: string };
   });
 }
 
+// ← UPDATED: WhatsApp message now includes AMC month, 2026 price, and respects sharePhone toggle
 function buildWhatsAppUrl(techPhone: string, task: Task): string {
-  const msg = `*New Task Assigned*\nName: ${task.name}\nAddress: ${task.address}\nPhone: ${task.phone}\nType: ${task.type}${task.comment ? `\nNote: ${task.comment}` : ""}`;
-  return `https://wa.me/${techPhone}?text=${encodeURIComponent(msg)}`;
+  const lines: string[] = [];
+  lines.push(`Name: ${task.name}`);
+  lines.push(`Address: ${task.address}`);
+  
+  // Only include phone if admin allows sharing
+  if (task.sharePhone) {
+    lines.push(`Phone: ${task.phone}`);
+  } else {
+    lines.push(`Phone: (hidden by admin)`);
+  }
+  
+  lines.push(`Type: ${task.type}`);
+  
+  // Include AMC info from sheet if available
+  if (task.amcMonth?.trim()) {
+    lines.push(`AMC Month: ${task.amcMonth}`);
+  }
+  if (task.amcPrice?.trim()) {
+    lines.push(`2026 AMC Price: ${task.amcPrice}`);
+  }
+  
+  if (task.comment?.trim()) {
+    lines.push(`Note: ${task.comment}`);
+  }
+  
+  return `https://wa.me/${techPhone}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
 
 // API key stays in localStorage only — never sent to Firestore
@@ -145,6 +172,32 @@ function Input({ label, value, onChange, placeholder, type = "text" }: InputProp
         placeholder={placeholder}
         className="mt-1.5 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
       />
+    </label>
+  );
+}
+
+// ← NEW: Checkbox component for admin toggle
+interface CheckboxProps {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  description?: string;
+}
+function Checkbox({ label, checked, onChange, description }: CheckboxProps) {
+  return (
+    <label className="flex items-start gap-3 cursor-pointer">
+      <div className="relative flex items-center mt-0.5">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="h-5 w-5 rounded-lg border-2 border-slate-300 text-blue-600 focus:ring-blue-500 focus:ring-offset-0 checked:bg-blue-600 checked:border-blue-600 cursor-pointer"
+        />
+      </div>
+      <div className="flex flex-col">
+        <span className="text-sm font-medium text-slate-700">{label}</span>
+        {description && <span className="text-xs text-slate-500">{description}</span>}
+      </div>
     </label>
   );
 }
@@ -196,6 +249,11 @@ export default function Home() {
   const [taskTech, setTaskTech]       = useState<string>(TECHNICIANS[0].id);
   const [taskError, setTaskError]     = useState<string>("");
   const [taskComment, setTaskComment] = useState<string>("");
+  // ← NEW: AMC info from selected customer
+  const [taskAmcMonth, setTaskAmcMonth] = useState<string>("");
+  const [taskAmcPrice, setTaskAmcPrice] = useState<string>("");
+  // ← NEW: Admin toggle to share phone with technician
+  const [taskSharePhone, setTaskSharePhone] = useState<boolean>(true);
 
   // UI
   const [tab, setTab]                   = useState<string>("tasks");
@@ -232,6 +290,9 @@ useEffect(() => {
             techId:    d.data().techId    ?? "",
             status:    (d.data().status   ?? STATUS.PENDING) as StatusKey,
             createdAt: d.data().createdAt ?? null,
+            amcMonth:  d.data().amcMonth  ?? "",      // ← NEW
+            amcPrice:  d.data().amcPrice  ?? "",      // ← NEW
+            sharePhone: d.data().sharePhone ?? true,   // ← NEW
           })),
         );
         setFirestoreLoading(false);
@@ -338,8 +399,14 @@ const fetchSheet = async () => {
 };
 
   // ── Task CRUD ──────────────────────────────────────────────────────────────
+  // ← UPDATED: Also fill AMC month and price when selecting customer from sheet
   const fillFromCustomer = (c: Customer) => {
-    setTaskName(c.name); setTaskAddress(c.address); setTaskPhone(c.phone); setSearch("");
+    setTaskName(c.name); 
+    setTaskAddress(c.address); 
+    setTaskPhone(c.phone);
+    setTaskAmcMonth(c.amcMonth);    // ← NEW
+    setTaskAmcPrice(c.amcPrice);    // ← NEW
+    setSearch("");
   };
 
   const addTask = async () => {
@@ -351,15 +418,20 @@ const fetchSheet = async () => {
         name:      taskName.trim(),
         address:   taskAddress.trim(),
         phone:     taskPhone.trim(),
-          comment: taskComment.trim(),
+        comment: taskComment.trim(),
         type:      taskType,
         techId:    taskTech,
         status:    STATUS.PENDING,
         createdAt: serverTimestamp(),
+        amcMonth:  taskAmcMonth.trim(),   // ← NEW
+        amcPrice:  taskAmcPrice.trim(),   // ← NEW
+        sharePhone: taskSharePhone,       // ← NEW
       });
       setTaskName(""); setTaskAddress(""); setTaskPhone("");
       setTaskType(TASK_TYPES[0]); setTaskTech(TECHNICIANS[0].id);
       setTaskError(""); setSearch("");
+      setTaskAmcMonth(""); setTaskAmcPrice("");  // ← NEW: reset AMC fields
+      setTaskSharePhone(true);                    // ← NEW: reset toggle
     } catch {
       setTaskError("Failed to save task. Check your Firestore connection.");
     }
@@ -506,6 +578,12 @@ const fetchSheet = async () => {
                         className="flex w-full flex-col gap-0.5 px-4 py-3 text-left text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0">
                         <span className="font-medium text-slate-900">{c.name}</span>
                         <span className="text-slate-500 text-xs">{c.address} · {c.phone}</span>
+                        {/* ← NEW: Show AMC info in search results */}
+                        {(c.amcMonth || c.amcPrice) && (
+                          <span className="text-xs text-blue-600">
+                            AMC: {c.amcMonth || "-"} | 2026 Price: {c.amcPrice || "-"}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -523,10 +601,23 @@ const fetchSheet = async () => {
                 <Input label="Phone"         value={taskPhone}   onChange={setTaskPhone}   placeholder="Mobile number" />
                 <Input label="Address"       value={taskAddress} onChange={setTaskAddress} placeholder="Full address" />
                 <Input label="Comment / Notes" value={taskComment} onChange={setTaskComment} placeholder="Optional note for the technician…" />
+                {/* ← NEW: AMC month and price fields (auto-filled from sheet, editable) */}
+                <Input label="AMC Month" value={taskAmcMonth} onChange={setTaskAmcMonth} placeholder="e.g. January" />
+                <Input label="2026 AMC Price" value={taskAmcPrice} onChange={setTaskAmcPrice} placeholder="e.g. ₹2,500" />
                 <Select label="Type" value={taskType} onChange={setTaskType}
                   options={TASK_TYPES.map((t) => ({ value: t, label: t }))} />
                 <Select label="Assign Technician" value={taskTech} onChange={setTaskTech}
                   options={TECHNICIANS.map((t) => ({ value: t.id, label: t.name }))} />
+              </div>
+
+              {/* ← NEW: Admin checkbox to control phone sharing */}
+              <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <Checkbox 
+                  label="Phone Sharing"
+                
+                  checked={taskSharePhone}
+                  onChange={setTaskSharePhone}
+                />
               </div>
 
               {taskError && <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{taskError}</div>}
@@ -578,7 +669,18 @@ const fetchSheet = async () => {
                         {task.comment && (
   <p className="text-xs text-slate-500 italic">💬 {task.comment}</p>
 )}
+                        {/* ← NEW: Show AMC info in mobile card */}
+                        {task.amcMonth && (
+                          <span className="rounded-lg bg-blue-50 border border-blue-200 px-2 py-1 text-blue-700">AMC: {task.amcMonth}</span>
+                        )}
+                        {task.amcPrice && (
+                          <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 text-emerald-700">2026: {task.amcPrice}</span>
+                        )}
                         <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">👷 {tech?.name}</span>
+                        {/* ← NEW: Show phone sharing status */}
+                        {!task.sharePhone && (
+                          <span className="rounded-lg bg-amber-50 border border-amber-200 px-2 py-1 text-amber-700">🔒 Phone hidden</span>
+                        )}
                       </div>
                       <TaskActions task={task} onStatus={changeStatus} onDelete={deleteTask} />
                     </div>
@@ -591,28 +693,36 @@ const fetchSheet = async () => {
                 <table className="min-w-full text-sm text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+                      {/* ← UPDATED: Added AMC columns */}
                       {["Name","Address","Phone",
-                      "Comment","Type","Technician","Status","Actions"].map((h) => (
+                      "Comment","Type","AMC Month","2026 Price","Technician","Status","Actions"].map((h) => (
                         <th key={h} className="px-4 py-3 border-b border-slate-200 font-semibold whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {firestoreLoading ? (
-                      <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400 animate-pulse">Loading tasks…</td></tr>
+                      <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-400 animate-pulse">Loading tasks…</td></tr>
                     ) : pageTasks.length === 0 ? (
-                      <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No tasks found.</td></tr>
+                      <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-400">No tasks found.</td></tr>
                     ) : pageTasks.map((task) => {
                       const tech = TECHNICIANS.find((t) => t.id === task.techId);
                       return (
                         <tr key={task.id} className="border-b border-slate-100 hover:bg-slate-50">
                           <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{task.name}</td>
                           <td className="px-4 py-3 text-slate-600 max-w-xs">{task.address}</td>
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{task.phone}</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {task.phone}
+                            {/* ← NEW: Show lock icon if phone is hidden from tech */}
+                            {!task.sharePhone && <span className="ml-1 text-amber-500" title="Hidden from technician">🔒</span>}
+                          </td>
                           <td className="px-4 py-3 text-slate-500 text-xs max-w-xs">{task.comment || "—"}</td>
                           <td className="px-4 py-3">
                             <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">{task.type}</span>
                           </td>
+                          {/* ← NEW: AMC columns */}
+                          <td className="px-4 py-3 text-slate-600 text-xs">{task.amcMonth || "—"}</td>
+                          <td className="px-4 py-3 text-slate-600 text-xs font-medium">{task.amcPrice || "—"}</td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">👷 {tech?.name}</td>
                           <td className="px-4 py-3"><Badge status={task.status} /></td>
                           <td className="px-4 py-3"><TaskActions task={task} onStatus={changeStatus} onDelete={deleteTask} /></td>
