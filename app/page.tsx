@@ -59,6 +59,7 @@ const ADMIN_USER: AdminUser = { username: "admin", password: "admin123", name: "
 const TECHNICIANS: Technician[] = [
   { id: "ravi",   name: "Ravi",   phone: "919958877474" },
   { id: "deepak", name: "Deepak", phone: "919711581142" },
+    { id: "admin", name: "admin", phone: "919650830901" },
 ];
 
 const TASK_TYPES: string[] = ["New RO", "Per Visit", "Quotation", "Complaint"];
@@ -117,9 +118,7 @@ function buildWhatsAppUrl(techPhone: string, task: Task): string {
   // Only include phone if admin allows sharing
   if (task.sharePhone) {
     lines.push(`Phone: ${task.phone}`);
-  } else {
-    lines.push(`Phone: (hidden by admin)`);
-  }
+  } 
   
   lines.push(`Type: ${task.type}`);
   
