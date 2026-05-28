@@ -42,6 +42,7 @@ interface Task {
   techId: string;
   status: StatusKey;
   createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;  // ← ADD
   amcMonth: string;      // ← NEW: store AMC month from sheet
   amcPrice: string;      // ← NEW: store 2026 AMC price from sheet
   sharePhone: boolean;   // ← NEW: admin toggle to share phone with tech
@@ -248,6 +249,8 @@ export default function Home() {
   const [taskTech, setTaskTech]       = useState<string>(TECHNICIANS[0].id);
   const [taskError, setTaskError]     = useState<string>("");
   const [taskComment, setTaskComment] = useState<string>("");
+  const [editingCommentId, setEditingCommentId]     = useState<string | null>(null);
+const [editingCommentText, setEditingCommentText] = useState<string>("");
   // ← NEW: AMC info from selected customer
   const [taskAmcMonth, setTaskAmcMonth] = useState<string>("");
   const [taskAmcPrice, setTaskAmcPrice] = useState<string>("");
@@ -289,6 +292,7 @@ useEffect(() => {
             techId:    d.data().techId    ?? "",
             status:    (d.data().status   ?? STATUS.PENDING) as StatusKey,
             createdAt: d.data().createdAt ?? null,
+            updatedAt: d.data().updatedAt ?? null,   // ← ADD after sharePhone line
             amcMonth:  d.data().amcMonth  ?? "",      // ← NEW
             amcPrice:  d.data().amcPrice  ?? "",      // ← NEW
             sharePhone: d.data().sharePhone ?? true,   // ← NEW
@@ -458,7 +462,26 @@ const fetchSheet = async () => {
       alert("Failed to delete task.");
     }
   };
-
+const updateComment = async (taskId: string) => {
+  try {
+    await updateDoc(doc(db, "tasks", taskId), {
+      comment:   editingCommentText.trim(),
+      updatedAt: serverTimestamp(),
+    });
+    setEditingCommentId(null);
+    setEditingCommentText("");
+  } catch {
+    alert("Failed to update comment.");
+  }
+};
+const renderDate = (task: Task) => {
+  const ts = task.updatedAt ?? task.createdAt;
+  if (!ts) return "—";
+  const label = task.updatedAt ? "✏️" : "📅";
+  return `${label} ${ts.toDate().toLocaleDateString("en-IN", {
+    day: "2-digit", month: "short", year: "numeric",
+  })}`;
+};
   // ── Login screen ───────────────────────────────────────────────────────────
   if (!loggedIn) {
     return (
@@ -672,8 +695,28 @@ const fetchSheet = async () => {
   </span>
 )}
                         <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">{task.type}</span>
-                        {task.comment && (
-  <p className="text-xs text-slate-500 italic">💬 {task.comment}</p>
+              {editingCommentId === task.id ? (
+  <div className="flex gap-2 w-full">
+    <input
+      autoFocus
+      value={editingCommentText}
+      onChange={(e) => setEditingCommentText(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") updateComment(task.id); if (e.key === "Escape") setEditingCommentId(null); }}
+      className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-400"
+      placeholder="Enter comment…"
+    />
+    <button type="button" onClick={() => updateComment(task.id)}
+      className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500">Save</button>
+    <button type="button" onClick={() => setEditingCommentId(null)}
+      className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">✕</button>
+  </div>
+) : (
+  <div className="flex items-start gap-1.5 w-full">
+    <p className="flex-1 text-xs text-slate-500 italic">{task.comment ? `💬 ${task.comment}` : "No comment"}</p>
+    <button type="button"
+      onClick={() => { setEditingCommentId(task.id); setEditingCommentText(task.comment); }}
+      className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-500 hover:bg-slate-200 hover:text-slate-700 shrink-0">✏️</button>
+  </div>
 )}
                         {/* ← NEW: Show AMC info in mobile card */}
                         {task.amcMonth && (
@@ -722,7 +765,31 @@ const fetchSheet = async () => {
                             {/* ← NEW: Show lock icon if phone is hidden from tech */}
                             {!task.sharePhone && <span className="ml-1 text-amber-500" title="Hidden from technician">🔒</span>}
                           </td>
-                          <td className="px-4 py-3 text-slate-500 text-xs max-w-xs">{task.comment || "—"}</td>
+                       <td className="px-4 py-3 text-slate-500 text-xs max-w-xs">
+  {editingCommentId === task.id ? (
+    <div className="flex gap-1.5 min-w-[200px]">
+      <input
+        autoFocus
+        value={editingCommentText}
+        onChange={(e) => setEditingCommentText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") updateComment(task.id); if (e.key === "Escape") setEditingCommentId(null); }}
+        className="flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-400"
+        placeholder="Enter comment…"
+      />
+      <button type="button" onClick={() => updateComment(task.id)}
+        className="rounded-lg bg-blue-600 px-2 py-1 text-xs font-semibold text-white hover:bg-blue-500">✓</button>
+      <button type="button" onClick={() => setEditingCommentId(null)}
+        className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600 hover:bg-slate-200">✕</button>
+    </div>
+  ) : (
+    <div className="flex items-center gap-1.5 group">
+      <span className="flex-1">{task.comment || "—"}</span>
+      <button type="button"
+        onClick={() => { setEditingCommentId(task.id); setEditingCommentText(task.comment); }}
+        className="rounded-lg bg-slate-100 px-1.5 py-0.5 text-xs text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-slate-200 hover:text-slate-700 transition-opacity">✏️</button>
+    </div>
+  )}
+</td>
                           <td className="px-4 py-3">
                             <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">{task.type}</span>
                           </td>
@@ -732,11 +799,7 @@ const fetchSheet = async () => {
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">👷 {tech?.name}</td>
                           
                           <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
-  {task.createdAt
-    ? task.createdAt.toDate().toLocaleDateString("en-IN", {
-        day: "2-digit", month: "short", year: "numeric",
-      })
-    : "—"}
+<span className="rounded-lg bg-white border border-slate-200 px-2 py-1">{renderDate(task)}</span>
 </td>
                           <td className="px-4 py-3"><Badge status={task.status} /></td>
                           <td className="px-4 py-3"><TaskActions task={task} onStatus={changeStatus} onDelete={deleteTask} /></td>
