@@ -59,7 +59,7 @@ const ADMIN_USER: AdminUser = { username: "admin", password: "admin123", name: "
 const TECHNICIANS: Technician[] = [
   { id: "ravi",   name: "Ravi",   phone: "919958877474" },
   { id: "deepak", name: "Deepak", phone: "919711581142" },
-    { id: "admin", name: "admin", phone: "919650830901" },
+    { id: "admin", name: "Admin", phone: "919650830901" },
 ];
 
 const TASK_TYPES: string[] = ["New RO", "Per Visit", "Quotation", "Complaint"];
@@ -664,6 +664,13 @@ const fetchSheet = async () => {
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs text-slate-600">
                         <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">{task.phone}</span>
+                        {task.createdAt && (
+  <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">
+    📅 {task.createdAt.toDate().toLocaleDateString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric",
+    })}
+  </span>
+)}
                         <span className="rounded-lg bg-white border border-slate-200 px-2 py-1">{task.type}</span>
                         {task.comment && (
   <p className="text-xs text-slate-500 italic">💬 {task.comment}</p>
@@ -694,7 +701,7 @@ const fetchSheet = async () => {
                     <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
                       {/* ← UPDATED: Added AMC columns */}
                       {["Name","Address","Phone",
-                      "Comment","Type","AMC Month","2026 Price","Technician","Status","Actions"].map((h) => (
+                      "Comment","Type","AMC Month","2026 Price","Technician","Date Added","Status","Actions"].map((h) => (
                         <th key={h} className="px-4 py-3 border-b border-slate-200 font-semibold whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -723,6 +730,14 @@ const fetchSheet = async () => {
                           <td className="px-4 py-3 text-slate-600 text-xs">{task.amcMonth || "—"}</td>
                           <td className="px-4 py-3 text-slate-600 text-xs font-medium">{task.amcPrice || "—"}</td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">👷 {tech?.name}</td>
+                          
+                          <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+  {task.createdAt
+    ? task.createdAt.toDate().toLocaleDateString("en-IN", {
+        day: "2-digit", month: "short", year: "numeric",
+      })
+    : "—"}
+</td>
                           <td className="px-4 py-3"><Badge status={task.status} /></td>
                           <td className="px-4 py-3"><TaskActions task={task} onStatus={changeStatus} onDelete={deleteTask} /></td>
                         </tr>
