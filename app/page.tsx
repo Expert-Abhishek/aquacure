@@ -415,7 +415,7 @@ const fetchSheet = async () => {
   const addTask = async () => {
     if (!taskName.trim())    { setTaskError("Customer name is required."); return; }
     if (!taskAddress.trim()) { setTaskError("Address is required."); return; }
-    if (!taskPhone.trim())   { setTaskError("Phone is required."); return; }
+    if (taskSharePhone && !taskPhone.trim()) { setTaskError("Phone is required."); return; }
     try {
       await addDoc(collection(db, "tasks"), {
         name:      taskName.trim(),
