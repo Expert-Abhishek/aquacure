@@ -121,6 +121,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [taskComment, setTaskComment] = useState("");
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState("");
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [taskAmcMonth, setTaskAmcMonth] = useState("");
   const [taskAmcPrice, setTaskAmcPrice] = useState("");
   const [taskSharePhone, setTaskSharePhone] = useState(true);
@@ -327,6 +328,73 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setQueryPhone(customer.phone);
     setQuerySearch("");
   };
+
+  const startTaskEdit = (task: Task) => {
+    setEditingTask({ ...task });
+  };
+
+  const cancelTaskEdit = () => {
+    setEditingTask(null);
+  };
+
+  const updateEditingTask = (updates: Partial<Task>) => {
+    setEditingTask((prev) => (prev ? { ...prev, ...updates } : prev));
+  };
+
+  const saveTask = async () => {
+    if (!editingTask) return;
+    if (!editingTask.name.trim()) {
+      setTaskError("Customer name is required.");
+      return;
+    }
+    if (!editingTask.address.trim()) {
+      setTaskError("Address is required.");
+      return;
+    }
+    if (editingTask.sharePhone && !editingTask.phone.trim()) {
+      setTaskError("Phone is required.");
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, "tasks", editingTask.id), {
+        name: editingTask.name.trim(),
+        address: editingTask.address.trim(),
+        phone: editingTask.phone.trim(),
+        comment: editingTask.comment.trim(),
+        type: editingTask.type,
+        techId: editingTask.techId,
+        amcMonth: editingTask.amcMonth.trim(),
+        amcPrice: editingTask.amcPrice.trim(),
+        sharePhone: editingTask.sharePhone,
+        updatedAt: serverTimestamp(),
+      });
+      cancelTaskEdit();
+    } catch {
+      setTaskError("Failed to save task. Check your Firestore connection.");
+    }
+  };
+
+  const resendTask = (taskId: string) => {
+    const currentTask = tasks.find((task) => task.id === taskId);
+    if (!currentTask) return;
+    const tech = TECHNICIANS.find((item) => item.id === currentTask.techId);
+    if (!tech) {
+      alert("Technician not assigned.");
+      return;
+    }
+    window.open(buildWhatsAppUrl(tech.phone, currentTask), "_blank");
+  };
+
+  const onEditTaskNameChange = (value: string) => updateEditingTask({ name: value });
+  const onEditTaskAddressChange = (value: string) => updateEditingTask({ address: value });
+  const onEditTaskPhoneChange = (value: string) => updateEditingTask({ phone: value });
+  const onEditTaskCommentChange = (value: string) => updateEditingTask({ comment: value });
+  const onEditTaskAmcMonthChange = (value: string) => updateEditingTask({ amcMonth: value });
+  const onEditTaskAmcPriceChange = (value: string) => updateEditingTask({ amcPrice: value });
+  const onEditTaskTypeChange = (value: string) => updateEditingTask({ type: value });
+  const onEditTaskTechChange = (value: string) => updateEditingTask({ techId: value });
+  const onEditTaskSharePhoneChange = (value: boolean) => updateEditingTask({ sharePhone: value });
 
   const addTask = async () => {
     if (!taskName.trim()) {
@@ -605,18 +673,25 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
                   onTaskTypeChange={setTaskType}
                   onTaskTechChange={setTaskTech}
                   onAddTask={addTask}
+                  onSaveTask={saveTask}
+                  onCancelEditTask={cancelTaskEdit}
+                  onEditTask={startTaskEdit}
+                  onEditTaskNameChange={onEditTaskNameChange}
+                  onEditTaskAddressChange={onEditTaskAddressChange}
+                  onEditTaskPhoneChange={onEditTaskPhoneChange}
+                  onEditTaskCommentChange={onEditTaskCommentChange}
+                  onEditTaskAmcMonthChange={onEditTaskAmcMonthChange}
+                  onEditTaskAmcPriceChange={onEditTaskAmcPriceChange}
+                  onEditTaskTypeChange={onEditTaskTypeChange}
+                  onEditTaskTechChange={onEditTaskTechChange}
+                  onEditTaskSharePhoneChange={onEditTaskSharePhoneChange}
                   onFillFromCustomer={fillFromCustomer}
+                  editingTask={editingTask}
+                  onSendTask={resendTask}
                   onFilterStatusChange={setFilterStatus}
                   onPageSizeChange={setPageSize}
                   onPageChange={setPage}
-                  onUpdateComment={updateComment}
-                  onEditComment={handleEditComment}
-                  editingCommentId={editingCommentId}
-                  editingCommentText={editingCommentText}
-                  onEditingCommentTextChange={setEditingCommentText}
-                  onStatusChange={changeStatus}
                   onDeleteTask={deleteTask}
-                  onSetEditingCommentId={setEditingCommentId}
                 />
               )}
             </div>

@@ -37,36 +37,36 @@ interface TaskBoardProps {
   onTaskTypeChange: (value: string) => void;
   onTaskTechChange: (value: string) => void;
   onAddTask: () => void;
+  onSaveTask: () => void;
+  onCancelEditTask: () => void;
+  onEditTask: (task: Task) => void;
+  onEditTaskNameChange: (value: string) => void;
+  onEditTaskAddressChange: (value: string) => void;
+  onEditTaskPhoneChange: (value: string) => void;
+  onEditTaskCommentChange: (value: string) => void;
+  onEditTaskAmcMonthChange: (value: string) => void;
+  onEditTaskAmcPriceChange: (value: string) => void;
+  onEditTaskTypeChange: (value: string) => void;
+  onEditTaskTechChange: (value: string) => void;
+  onEditTaskSharePhoneChange: (value: boolean) => void;
+  editingTask: Task | null;
   onFillFromCustomer: (customer: Customer) => void;
+  onSendTask: (taskId: string) => void;
   onFilterStatusChange: (value: string) => void;
   onPageSizeChange: (value: number) => void;
   onPageChange: (value: number) => void;
-  onUpdateComment: (taskId: string) => void;
-  onEditComment: (taskId: string, comment: string) => void;
-  editingCommentId: string | null;
-  editingCommentText: string;
-  onEditingCommentTextChange: (value: string) => void;
-  onStatusChange: (taskId: string, newStatus: StatusKey) => void;
   onDeleteTask: (taskId: string) => void;
-  onSetEditingCommentId: (taskId: string | null) => void;
 }
 
-function TaskActions({ task, onStatus, onDelete }: { task: Task; onStatus: (taskId: string, newStatus: StatusKey) => void; onDelete: (taskId: string) => void }) {
-  const { status } = task;
-
+function TaskActions({ task, onSend, onDelete, onEdit }: { task: Task; onSend: (taskId: string) => void; onDelete: (taskId: string) => void; onEdit: (task: Task) => void; }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {status === STATUS.PENDING && (
-        <button type="button" onClick={() => onStatus(task.id, STATUS.INPROGRESS)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-500" title="Send to technician via WhatsApp and mark In Progress">
-          📲 Send & Start
-        </button>
-      )}
-      {status === STATUS.INPROGRESS && (
-        <button type="button" onClick={() => onStatus(task.id, STATUS.DONE)} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500">
-          ✓ Mark Done
-        </button>
-      )}
-      {status === STATUS.DONE && <span className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-400">Completed</span>}
+      <button type="button" onClick={() => onSend(task.id)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-500" title="Send task details to technician via WhatsApp">
+        📲 Send
+      </button>
+      <button type="button" onClick={() => onEdit(task)} className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200">
+        ✏️ Edit
+      </button>
       <button type="button" onClick={() => onDelete(task.id)} className="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-500 transition hover:bg-rose-100">
         Delete
       </button>
@@ -114,18 +114,25 @@ export default function TaskBoard({
   onTaskTypeChange,
   onTaskTechChange,
   onAddTask,
+  onSaveTask,
+  onCancelEditTask,
+  onEditTask,
+  onEditTaskNameChange,
+  onEditTaskAddressChange,
+  onEditTaskPhoneChange,
+  onEditTaskCommentChange,
+  onEditTaskAmcMonthChange,
+  onEditTaskAmcPriceChange,
+  onEditTaskTypeChange,
+  onEditTaskTechChange,
+  onEditTaskSharePhoneChange,
+  editingTask,
   onFillFromCustomer,
+  onSendTask,
   onFilterStatusChange,
   onPageSizeChange,
   onPageChange,
-  onUpdateComment,
-  onEditComment,
-  editingCommentId,
-  editingCommentText,
-  onEditingCommentTextChange,
-  onStatusChange,
   onDeleteTask,
-  onSetEditingCommentId,
 }: TaskBoardProps) {
   const stats = useMemo(() => ({
     total: tasks.length,
@@ -186,10 +193,40 @@ export default function TaskBoard({
         </div>
 
         {taskError && <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{taskError}</div>}
-        <button type="button" onClick={onAddTask} className="mt-5 rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500">
-          + Add Task
-        </button>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button type="button" onClick={onAddTask} className="rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500">
+            + Add Task
+          </button>
+        </div>
       </SectionCard>
+
+      {editingTask && (
+        <SectionCard title={`Edit Task: ${editingTask.name || "Task"}`} description="Update task details and save changes.">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Input label="Customer Name" value={editingTask.name} onChange={onEditTaskNameChange} placeholder="Full name" />
+            <Input label="Phone" value={editingTask.phone} onChange={onEditTaskPhoneChange} placeholder="Mobile number" />
+            <Input label="Address" value={editingTask.address} onChange={onEditTaskAddressChange} placeholder="Full address" />
+            <Input label="Comment / Notes" value={editingTask.comment} onChange={onEditTaskCommentChange} placeholder="Optional note for the technician…" />
+            <Input label="AMC Month" value={editingTask.amcMonth} onChange={onEditTaskAmcMonthChange} placeholder="e.g. January" />
+            <Input label="2026 AMC Price" value={editingTask.amcPrice} onChange={onEditTaskAmcPriceChange} placeholder="e.g. ₹2,500" />
+            <Select label="Type" value={editingTask.type} onChange={onEditTaskTypeChange} options={TASK_TYPES.map((type) => ({ value: type, label: type }))} />
+            <Select label="Assign Technician" value={editingTask.techId} onChange={onEditTaskTechChange} options={TECHNICIANS.map((tech) => ({ value: tech.id, label: tech.name }))} />
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <Checkbox label="Phone Sharing" checked={editingTask.sharePhone} onChange={onEditTaskSharePhoneChange} />
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button type="button" onClick={onSaveTask} className="rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500">
+              Save Changes
+            </button>
+            <button type="button" onClick={onCancelEditTask} className="rounded-2xl bg-slate-100 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-200">
+              Cancel Edit
+            </button>
+          </div>
+        </SectionCard>
+      )}
 
       <SectionCard title="All Tasks">
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -227,24 +264,13 @@ export default function TaskBoard({
                   <span className="rounded-lg border border-slate-200 bg-white px-2 py-1">{task.phone}</span>
                   {task.createdAt && <span className="rounded-lg border border-slate-200 bg-white px-2 py-1">📅 {task.createdAt.toDate().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>}
                   <span className="rounded-lg border border-slate-200 bg-white px-2 py-1">{task.type}</span>
-                  {editingCommentId === task.id ? (
-                    <div className="flex w-full gap-2">
-                      <input autoFocus value={editingCommentText} onChange={(e) => onEditingCommentTextChange(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onUpdateComment(task.id); if (e.key === "Escape") onSetEditingCommentId(null); }} className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-400" placeholder="Enter comment…" />
-                      <button type="button" onClick={() => onUpdateComment(task.id)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500">Save</button>
-                      <button type="button" onClick={() => onSetEditingCommentId(null)} className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">✕</button>
-                    </div>
-                  ) : (
-                    <div className="flex w-full items-start gap-1.5">
-                      <p className="flex-1 text-xs italic text-slate-500">{task.comment ? `💬 ${task.comment}` : "No comment"}</p>
-                      <button type="button" onClick={() => { onSetEditingCommentId(task.id); onEditComment(task.id, task.comment); }} className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-500 hover:bg-slate-200 hover:text-slate-700">✏️</button>
-                    </div>
-                  )}
+                  <span className="text-xs italic text-slate-500">{task.comment ? `💬 ${task.comment}` : "No comment"}</span>
                   {task.amcMonth && <span className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700">AMC: {task.amcMonth}</span>}
                   {task.amcPrice && <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">2026: {task.amcPrice}</span>}
                   <span className="rounded-lg border border-slate-200 bg-white px-2 py-1">👷 {tech?.name}</span>
                   {!task.sharePhone && <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">🔒 Phone hidden</span>}
                 </div>
-                <TaskActions task={task} onStatus={onStatusChange} onDelete={onDeleteTask} />
+                <TaskActions task={task} onSend={onSendTask} onDelete={onDeleteTask} onEdit={onEditTask} />
               </div>
             );
           })}
@@ -271,27 +297,14 @@ export default function TaskBoard({
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{task.name}</td>
                     <td className="max-w-xs px-4 py-3 text-slate-600">{task.address}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">{task.phone}{!task.sharePhone && <span className="ml-1 text-amber-500" title="Hidden from technician">🔒</span>}</td>
-                    <td className="max-w-xs px-4 py-3 text-xs text-slate-500">
-                      {editingCommentId === task.id ? (
-                        <div className="flex min-w-[200px] gap-1.5">
-                          <input autoFocus value={editingCommentText} onChange={(e) => onEditingCommentTextChange(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onUpdateComment(task.id); if (e.key === "Escape") onSetEditingCommentId(null); }} className="flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-400" placeholder="Enter comment…" />
-                          <button type="button" onClick={() => onUpdateComment(task.id)} className="rounded-lg bg-blue-600 px-2 py-1 text-xs font-semibold text-white hover:bg-blue-500">✓</button>
-                          <button type="button" onClick={() => onSetEditingCommentId(null)} className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600 hover:bg-slate-200">✕</button>
-                        </div>
-                      ) : (
-                        <div className="group flex items-center gap-1.5">
-                          <span className="flex-1">{task.comment || "—"}</span>
-                          <button type="button" onClick={() => { onSetEditingCommentId(task.id); onEditComment(task.id, task.comment); }} className="rounded-lg bg-slate-100 px-1.5 py-0.5 text-xs text-slate-400 opacity-0 transition-opacity hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100">✏️</button>
-                        </div>
-                      )}
-                    </td>
+                    <td className="max-w-xs px-4 py-3 text-xs text-slate-500">{task.comment || "—"}</td>
                     <td className="px-4 py-3"><span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">{task.type}</span></td>
                     <td className="px-4 py-3 text-xs text-slate-600">{task.amcMonth || "—"}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{task.amcPrice || "—"}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">👷 {tech?.name}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500"><span className="rounded-lg border border-slate-200 bg-white px-2 py-1">{renderDate(task)}</span></td>
                     <td className="px-4 py-3"><Badge status={task.status} /></td>
-                    <td className="px-4 py-3"><TaskActions task={task} onStatus={onStatusChange} onDelete={onDeleteTask} /></td>
+                    <td className="px-4 py-3"><TaskActions task={task} onSend={onSendTask} onDelete={onDeleteTask} onEdit={onEditTask} /></td>
                   </tr>
                 );
               })}
