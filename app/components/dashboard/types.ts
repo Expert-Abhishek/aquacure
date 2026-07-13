@@ -50,6 +50,15 @@ export interface QueryItem {
   sharePhone: boolean;
 }
 
+export interface Quotation {
+  id: string;
+  name: string;
+  price: string;
+  image: string;
+  specs: string;
+  createdAt: Timestamp | null;
+}
+
 export type StatusKey = "pending" | "inprogress" | "done";
 
 export interface StatusMeta {

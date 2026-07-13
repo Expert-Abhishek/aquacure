@@ -17,6 +17,7 @@ import {
 import { db } from "@/lib/firebase";
 import TaskBoard from "./TaskBoard";
 import QueryCenter from "./QueryCenter";
+import QuotationCenter from "./QuotationCenter";
 import { Input } from "./ui";
 import {
   ADMIN_USER,
@@ -27,10 +28,11 @@ import {
   type QueryItem,
   type StatusKey,
   type Task,
+  type Quotation,
 } from "./types";
 
 interface MainDashboardProps {
-  initialMenu?: "task" | "query" | "bills";
+  initialMenu?: "task" | "query" | "bills" | "quotation";
 }
 
 function normalizeSheetId(value: string): string {
@@ -138,13 +140,16 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [filterStatus, setFilterStatus] = useState("all");
-  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "bills">(initialMenu);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "bills" | "quotation">(initialMenu);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
 
   const sidebarItems = [
     { key: "task" as const, label: "Task", description: "Active complaints and work queue" },
     { key: "query" as const, label: "Query", description: "Customer follow-ups and admin queries" },
     { key: "bills" as const, label: "Bills", description: "Billing and invoice tracking" },
+    { key: "quotation" as const, label: "Quotation", description: "Generate and send RO quotations" },
   ];
 
   useEffect(() => {
@@ -223,6 +228,28 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             amcMonth: docSnapshot.data().amcMonth ?? "",
             amcPrice: docSnapshot.data().amcPrice ?? "",
             sharePhone: docSnapshot.data().sharePhone ?? true,
+          })),
+        );
+      },
+      () => {},
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const quotationsQuery = query(collection(db, "quotations"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(
+      quotationsQuery,
+      (snapshot) => {
+        setQuotations(
+          snapshot.docs.map((docSnapshot) => ({
+            id: docSnapshot.id,
+            name: docSnapshot.data().name ?? "",
+            price: docSnapshot.data().price ?? "",
+            image: docSnapshot.data().image ?? "",
+            specs: docSnapshot.data().specs ?? "",
+            createdAt: docSnapshot.data().createdAt ?? null,
           })),
         );
       },
@@ -375,7 +402,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     }
   };
 
-  const resendTask = (taskId: string) => {
+  const resendTask = async (taskId: string) => {
     const currentTask = tasks.find((task) => task.id === taskId);
     if (!currentTask) return;
     const tech = TECHNICIANS.find((item) => item.id === currentTask.techId);
@@ -383,7 +410,17 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
       alert("Technician not assigned.");
       return;
     }
+
     window.open(buildWhatsAppUrl(tech.phone, currentTask), "_blank");
+
+    try {
+      await updateDoc(doc(db, "tasks", taskId), {
+        status: STATUS.INPROGRESS,
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      alert("Failed to update task status after sending.");
+    }
   };
 
   const onEditTaskNameChange = (value: string) => updateEditingTask({ name: value });
@@ -503,8 +540,61 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     if (!window.confirm("Delete this task?")) return;
     try {
       await deleteDoc(doc(db, "tasks", taskId));
+      setSelectedTaskIds((prev) => prev.filter((id) => id !== taskId));
     } catch {
       alert("Failed to delete task.");
+    }
+  };
+
+  const toggleTaskSelection = (taskId: string) => {
+    setSelectedTaskIds((prev) =>
+      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId],
+    );
+  };
+
+  const toggleSelectAll = (selectAll: boolean) => {
+    if (!selectAll) {
+      setSelectedTaskIds([]);
+      return;
+    }
+
+    setSelectedTaskIds((prev) => [...new Set([...prev, ...pageTasks.map((task) => task.id)])]);
+  };
+
+  const deleteSelectedTasks = async () => {
+    if (!selectedTaskIds.length) return;
+    if (!window.confirm(`Delete ${selectedTaskIds.length} selected task(s)?`)) return;
+
+    try {
+      const batch = writeBatch(db);
+      selectedTaskIds.forEach((taskId) => batch.delete(doc(db, "tasks", taskId)));
+      await batch.commit();
+      setSelectedTaskIds([]);
+    } catch {
+      alert("Failed to delete selected tasks.");
+    }
+  };
+
+  const addQuotation = async (name: string, price: string, image: string, specs: string) => {
+    try {
+      await addDoc(collection(db, "quotations"), {
+        name,
+        price,
+        image,
+        specs,
+        createdAt: serverTimestamp(),
+      });
+    } catch {
+      alert("Failed to save quotation template.");
+    }
+  };
+
+  const deleteQuotation = async (quotationId: string) => {
+    if (!window.confirm("Delete this quotation template?")) return;
+    try {
+      await deleteDoc(doc(db, "quotations", quotationId));
+    } catch {
+      alert("Failed to delete quotation template.");
     }
   };
 
@@ -692,6 +782,10 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
                   onPageSizeChange={setPageSize}
                   onPageChange={setPage}
                   onDeleteTask={deleteTask}
+                  selectedTaskIds={selectedTaskIds}
+                  onToggleTaskSelection={toggleTaskSelection}
+                  onToggleSelectAll={toggleSelectAll}
+                  onDeleteSelectedTasks={deleteSelectedTasks}
                 />
               )}
             </div>
@@ -723,6 +817,15 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
               <h2 className="text-lg font-semibold">Bills Center</h2>
               <p className="mt-2 text-sm text-slate-500">Billing and invoice tracking will appear here.</p>
             </section>
+          )}
+
+          {activeMenu === "quotation" && (
+            <QuotationCenter
+              sheetCustomers={sheetCustomers}
+              quotations={quotations}
+              onAddQuotation={addQuotation}
+              onDeleteQuotation={deleteQuotation}
+            />
           )}
         </main>
       </div>

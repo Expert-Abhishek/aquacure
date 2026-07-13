@@ -26,6 +26,10 @@ interface TaskBoardProps {
   totalPages: number;
   filteredTasks: Task[];
   pageTasks: Task[];
+  selectedTaskIds: string[];
+  onToggleTaskSelection: (taskId: string) => void;
+  onToggleSelectAll: (selectAll: boolean) => void;
+  onDeleteSelectedTasks: () => void;
   onSearchChange: (value: string) => void;
   onTaskNameChange: (value: string) => void;
   onTaskAddressChange: (value: string) => void;
@@ -133,29 +137,15 @@ export default function TaskBoard({
   onPageSizeChange,
   onPageChange,
   onDeleteTask,
+  selectedTaskIds,
+  onToggleTaskSelection,
+  onToggleSelectAll,
+  onDeleteSelectedTasks,
 }: TaskBoardProps) {
-  const stats = useMemo(() => ({
-    total: tasks.length,
-    pending: tasks.filter((task) => task.status === STATUS.PENDING).length,
-    inprogress: tasks.filter((task) => task.status === STATUS.INPROGRESS).length,
-    done: tasks.filter((task) => task.status === STATUS.DONE).length,
-  }), [tasks]);
+  const pageSelected = pageTasks.length > 0 && pageTasks.every((task) => selectedTaskIds.includes(task.id));
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          { label: "Total", value: stats.total, color: "bg-slate-900 text-white" },
-          { label: "Pending", value: stats.pending, color: "bg-amber-500 text-white" },
-          { label: "In Progress", value: stats.inprogress, color: "bg-blue-600 text-white" },
-          { label: "Done", value: stats.done, color: "bg-emerald-600 text-white" },
-        ].map((s) => (
-          <div key={s.label} className={`rounded-3xl p-5 ${s.color}`}>
-            <p className="text-3xl font-bold">{s.value}</p>
-            <p className="mt-1 text-sm opacity-80">{s.label}</p>
-          </div>
-        ))}
-      </div>
 
       <SectionCard title="Add New Task" description="Search a customer from the sheet, or fill in manually.">
         <div className="mt-5 relative">
@@ -241,6 +231,15 @@ export default function TaskBoard({
             <select value={pageSize} onChange={(e) => onPageSizeChange(Number(e.target.value))} className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs outline-none">
               {[5, 10, 20, 50].map((size) => <option key={size} value={size}>{size} / page</option>)}
             </select>
+            {selectedTaskIds.length > 0 && (
+              <button
+                type="button"
+                onClick={onDeleteSelectedTasks}
+                className="rounded-2xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-rose-500 shadow-sm"
+              >
+                🗑️ Delete Selected ({selectedTaskIds.length})
+              </button>
+            )}
           </div>
         </div>
 
@@ -254,10 +253,18 @@ export default function TaskBoard({
             return (
               <div key={task.id} className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-900">{task.name}</p>
-                    <p className="mt-0.5 text-xs text-slate-500">{task.address}</p>
-                  </div>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedTaskIds.includes(task.id)}
+                      onChange={() => onToggleTaskSelection(task.id)}
+                      className="h-4 w-4 rounded border-slate-300 text-slate-900"
+                    />
+                    <div>
+                      <p className="font-semibold text-slate-900">{task.name}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{task.address}</p>
+                    </div>
+                  </label>
                   <Badge status={task.status} />
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs text-slate-600">
@@ -280,6 +287,14 @@ export default function TaskBoard({
           <table className="min-w-full border-collapse text-left text-sm">
             <thead>
               <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <th className="border-b border-slate-200 px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={pageSelected}
+                    onChange={(e) => onToggleSelectAll(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900"
+                  />
+                </th>
                 {['Name','Address','Phone','Comment','Type','AMC Month','2026 Price','Technician','Date Added','Status','Actions'].map((header) => (
                   <th key={header} className="whitespace-nowrap border-b border-slate-200 px-4 py-3 font-semibold">{header}</th>
                 ))}
@@ -287,13 +302,21 @@ export default function TaskBoard({
             </thead>
             <tbody>
               {firestoreLoading ? (
-                <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-400 animate-pulse">Loading tasks…</td></tr>
+                <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400 animate-pulse">Loading tasks…</td></tr>
               ) : pageTasks.length === 0 ? (
-                <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-400">No tasks found.</td></tr>
+                <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">No tasks found.</td></tr>
               ) : pageTasks.map((task) => {
                 const tech = TECHNICIANS.find((item) => item.id === task.techId);
                 return (
                   <tr key={task.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedTaskIds.includes(task.id)}
+                        onChange={() => onToggleTaskSelection(task.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-slate-900"
+                      />
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{task.name}</td>
                     <td className="max-w-xs px-4 py-3 text-slate-600">{task.address}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">{task.phone}{!task.sharePhone && <span className="ml-1 text-amber-500" title="Hidden from technician">🔒</span>}</td>
