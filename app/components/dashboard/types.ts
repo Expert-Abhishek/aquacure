@@ -56,6 +56,7 @@ export interface Quotation {
   price: string;
   image: string;
   specs: string;
+  tankCapacity?: string;
   createdAt: Timestamp | null;
 }
 

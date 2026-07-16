@@ -249,6 +249,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             price: docSnapshot.data().price ?? "",
             image: docSnapshot.data().image ?? "",
             specs: docSnapshot.data().specs ?? "",
+            tankCapacity: docSnapshot.data().tankCapacity ?? "",
             createdAt: docSnapshot.data().createdAt ?? null,
           })),
         );
@@ -575,13 +576,14 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     }
   };
 
-  const addQuotation = async (name: string, price: string, image: string, specs: string) => {
+  const addQuotation = async (name: string, price: string, image: string, specs: string, tankCapacity?: string) => {
     try {
       await addDoc(collection(db, "quotations"), {
         name,
         price,
         image,
         specs,
+        tankCapacity: tankCapacity ?? "",
         createdAt: serverTimestamp(),
       });
     } catch {

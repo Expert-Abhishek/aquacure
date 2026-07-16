@@ -8,7 +8,7 @@ import type { Customer, Quotation } from "./types";
 interface QuotationCenterProps {
   sheetCustomers: Customer[];
   quotations: Quotation[];
-  onAddQuotation: (name: string, price: string, image: string, specs: string) => Promise<void>;
+  onAddQuotation: (name: string, price: string, image: string, specs: string, tankCapacity?: string) => Promise<void>;
   onDeleteQuotation: (id: string) => Promise<void>;
 }
 
@@ -35,7 +35,11 @@ export default function QuotationCenter({
   const [roPrice, setRoPrice] = useState("");
   const [roImage, setRoImage] = useState("");
   const [roSpecs, setRoSpecs] = useState(DEFAULT_SPECS);
+  const [roCapacity, setRoCapacity] = useState("");
   const [roTerms, setRoTerms] = useState(DEFAULT_TERMS);
+
+  // Active items in the current quotation
+  const [items, setItems] = useState<{ id: string; name: string; price: string; capacity: string; image: string }[]>([]);
 
   // Customer states for active sharing
   const [custSearch, setCustSearch] = useState("");
@@ -133,13 +137,67 @@ export default function QuotationCenter({
     reader.readAsDataURL(file);
   };
 
-  // Select a saved quotation template
+  // Select a saved quotation template (loads into editor inputs)
   const handleSelectTemplate = (q: Quotation) => {
     setRoName(q.name);
     setRoPrice(q.price);
     setRoImage(q.image);
     setRoSpecs(q.specs || DEFAULT_SPECS);
-    setStatusMsg({ text: `Loaded template: ${q.name}`, isError: false });
+    setRoCapacity(q.tankCapacity || "");
+    setStatusMsg({ text: `Loaded template: ${q.name} into inputs`, isError: false });
+  };
+
+  // Add a saved template directly to the quotation items list
+  const handleAddTemplateDirectly = (q: Quotation) => {
+    const newItem = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+      name: q.name,
+      price: q.price,
+      capacity: q.tankCapacity || "Standard",
+      image: q.image || "",
+    };
+    setItems((prev) => [...prev, newItem]);
+    setStatusMsg({ text: `Added ${q.name} to the active quotation list!`, isError: false });
+  };
+
+  // Add the current form inputs to the quotation items list
+  const handleAddItem = () => {
+    if (!roName.trim()) {
+      setStatusMsg({ text: "Please enter product name to add.", isError: true });
+      return;
+    }
+    if (!roPrice.trim()) {
+      setStatusMsg({ text: "Please enter price to add.", isError: true });
+      return;
+    }
+
+    const newItem = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+      name: roName.trim(),
+      price: roPrice.trim(),
+      capacity: roCapacity.trim() ? roCapacity.trim() : "Standard",
+      image: roImage,
+    };
+
+    setItems((prev) => [...prev, newItem]);
+    setStatusMsg({ text: `Added ${newItem.name} to quotation list.`, isError: false });
+
+    // Clear inputs for the next item
+    setRoName("");
+    setRoPrice("");
+    setRoCapacity("");
+    setRoImage("");
+  };
+
+  // Remove a single item from the active list
+  const handleRemoveItem = (id: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // Clear all items in the quotation
+  const handleClearItems = () => {
+    setItems([]);
+    setStatusMsg({ text: "Cleared all items from quotation.", isError: false });
   };
 
   // Save the current active product info to Firestore templates
@@ -160,7 +218,7 @@ export default function QuotationCenter({
     setLoading(true);
     setStatusMsg({ text: "Saving template to database...", isError: false });
     try {
-      await onAddQuotation(roName, roPrice, roImage, roSpecs);
+      await onAddQuotation(roName, roPrice, roImage, roSpecs, roCapacity);
       setStatusMsg({ text: "Template saved successfully!", isError: false });
     } catch {
       setStatusMsg({ text: "Failed to save template.", isError: true });
@@ -211,7 +269,7 @@ export default function QuotationCenter({
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.setTextColor(15, 23, 42);
-    doc.text("QUOTATION", 15, 46);
+    doc.text("QUOTATION / CATALOG", 15, 46);
 
     const todayStr = new Date().toLocaleDateString("en-IN", {
       day: "2-digit",
@@ -273,7 +331,7 @@ export default function QuotationCenter({
     doc.setTextColor(71, 85, 105);
     doc.text("Mob: +91 96508 30901, 97115 81142", 113, 75);
 
-    // 6. Main Pricing Table
+    // 6. Main Pricing Table (CATALOG OF MULTIPLE ITEMS)
     const tableY = 88;
     doc.setFillColor(15, 23, 42); // slate-900 header
     doc.rect(15, tableY, 180, 8, "F");
@@ -281,95 +339,113 @@ export default function QuotationCenter({
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
     doc.setTextColor(255, 255, 255);
-    doc.text("Product Details & Description", 18, tableY + 5.5);
-    doc.text("Qty", 125, tableY + 5.5);
-    doc.text("Price (INR)", 148, tableY + 5.5);
-    doc.text("Total (INR)", 175, tableY + 5.5);
+    doc.text("Sr.", 18, tableY + 5.5);
+    doc.text("Image", 35, tableY + 5.5);
+    doc.text("Product Details & Capacity", 58, tableY + 5.5);
+    doc.text("Price (INR)", 160, tableY + 5.5);
 
-    // Table Content Row
-    doc.setFillColor(255, 255, 255);
-    doc.rect(15, tableY + 8, 180, 14, "S");
+    let currentY = tableY + 8;
+    const rowHeight = 26;
+    const pageHeightLimit = 240;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(15, 23, 42);
-    doc.text(roName.trim() ? roName : "RO Water Purifier System", 18, tableY + 14);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text("Complete unit including standard accessories", 18, tableY + 19);
+    items.forEach((item, idx) => {
+      // Check if we need to add a page
+      if (currentY + rowHeight > pageHeightLimit) {
+        doc.addPage();
+        
+        // Draw top accent header on new page
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, 210, 8, "F");
+        doc.setFillColor(14, 165, 233);
+        doc.rect(0, 8, 210, 2, "F");
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text("1 Set", 125, tableY + 16);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(30, 58, 138);
+        doc.text("AQUATECH SERVICES - PRODUCT CATALOG (Contd.)", 15, 18);
+        
+        doc.setDrawColor(226, 232, 240);
+        doc.line(15, 22, 195, 22);
 
-    const priceNum = parseFloat(roPrice.replace(/[^0-9]/g, "")) || 0;
-    const formattedPrice = `Rs. ${priceNum.toLocaleString("en-IN")}`;
-    doc.text(formattedPrice, 148, tableY + 16);
-    
-    doc.setFont("helvetica", "bold");
-    doc.text(formattedPrice, 175, tableY + 16);
+        // Draw Table Header on new page
+        currentY = 28;
+        doc.setFillColor(15, 23, 42);
+        doc.rect(15, currentY, 180, 8, "F");
 
-    // 7. Image & Technical Specifications Layout
-    const detailsY = 117;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.setTextColor(255, 255, 255);
+        doc.text("Sr.", 18, currentY + 5.5);
+        doc.text("Image", 35, currentY + 5.5);
+        doc.text("Product Details & Capacity", 58, currentY + 5.5);
+        doc.text("Price (INR)", 160, currentY + 5.5);
 
-    // Image Block on Left
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(30, 58, 138);
-    doc.text("PRODUCT PREVIEW", 15, detailsY - 3);
-
-    doc.setFillColor(250, 250, 250);
-    doc.rect(15, detailsY, 75, 75, "F");
-    doc.setDrawColor(226, 232, 240);
-    doc.rect(15, detailsY, 75, 75, "S");
-
-    if (roImage) {
-      try {
-        // Draw image stretched/fitted
-        doc.addImage(roImage, "JPEG", 17, detailsY + 2, 71, 71);
-      } catch (err) {
-        console.error("PDF image drawing error:", err);
+        currentY += 8;
       }
-    } else {
+
+      // Draw Row Border
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(15, currentY, 180, rowHeight, "S");
+
+      // Draw Sr No
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(148, 163, 184);
-      doc.text("No image preview", 38, detailsY + 38);
-    }
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(idx + 1), 19, currentY + rowHeight / 2 + 1);
 
-    // Specifications block on Right
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(30, 58, 138);
-    doc.text("TECHNICAL SPECIFICATIONS", 100, detailsY - 3);
-
-    doc.setFillColor(248, 250, 252);
-    doc.rect(100, detailsY, 95, 75, "F");
-    doc.rect(100, detailsY, 95, 75, "S");
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(51, 65, 85); // slate-700
-
-    const specLines = roSpecs.split("\n");
-    let lineY = detailsY + 7;
-    specLines.forEach((line) => {
-      if (line.trim()) {
-        const text = line.trim().startsWith("-") ? line.trim() : `• ${line.trim()}`;
-        // Wrap text to fit spec box width
-        const splitText = doc.splitTextToSize(text, 87);
-        splitText.forEach((st: string) => {
-          doc.text(st, 104, lineY);
-          lineY += 5;
-        });
+      // Draw Thumbnail Image
+      if (item.image) {
+        try {
+          doc.addImage(item.image, "JPEG", 27, currentY + 2, rowHeight - 4, rowHeight - 4);
+        } catch (err) {
+          console.error("PDF image drawing error:", err);
+          doc.setFontSize(8);
+          doc.setTextColor(148, 163, 184);
+          doc.text("Image Error", 28, currentY + rowHeight / 2 + 1);
+        }
+      } else {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text("No Photo", 29, currentY + rowHeight / 2 + 1);
       }
+
+      // Draw Product Name and Capacity
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      const splitName = doc.splitTextToSize(item.name, 95);
+      doc.text(splitName, 58, currentY + 8);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Tank Capacity: ${item.capacity}`, 58, currentY + rowHeight - 6);
+
+      // Draw Price
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      const priceNum = parseFloat(item.price.replace(/[^0-9]/g, "")) || 0;
+      const formattedPrice = `Rs. ${priceNum.toLocaleString("en-IN")}`;
+      doc.text(formattedPrice, 160, currentY + rowHeight / 2 + 1);
+
+      currentY += rowHeight;
     });
 
-    // 8. Terms & Conditions
-    const termsY = 205;
+    // 8. Terms & Conditions (dynamically positioned or on a new page)
+    let termsY = currentY + 12;
+    if (termsY + 45 > 297) {
+      doc.addPage();
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 8, "F");
+      doc.setFillColor(14, 165, 233);
+      doc.rect(0, 8, 210, 2, "F");
+      
+      termsY = 20;
+    }
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
@@ -392,7 +468,7 @@ export default function QuotationCenter({
     });
 
     // 9. Signatures and Thank You Note
-    const footerY = 250;
+    const footerY = Math.max(tY + 5, 250);
     doc.setDrawColor(226, 232, 240);
     doc.line(15, footerY, 195, footerY);
 
@@ -418,18 +494,14 @@ export default function QuotationCenter({
   };
 
   const handleDownloadPDF = () => {
-    if (!roName.trim()) {
-      setStatusMsg({ text: "Please enter product name before generating PDF.", isError: true });
-      return;
-    }
-    if (!roPrice.trim()) {
-      setStatusMsg({ text: "Please enter price before generating PDF.", isError: true });
+    if (items.length === 0) {
+      setStatusMsg({ text: "Please add at least one product to the quotation list before generating PDF.", isError: true });
       return;
     }
 
     try {
       const doc = buildPDF();
-      const filename = `Quotation_${roName.replace(/\s+/g, "_")}.pdf`;
+      const filename = `Quotation_Catalog_${Date.now().toString().slice(-6)}.pdf`;
       doc.save(filename);
       setStatusMsg({ text: "PDF downloaded successfully!", isError: false });
     } catch (err) {
@@ -443,19 +515,15 @@ export default function QuotationCenter({
       setStatusMsg({ text: "Please enter customer's mobile number to send via WhatsApp.", isError: true });
       return;
     }
-    if (!roName.trim()) {
-      setStatusMsg({ text: "Please enter product name before sending.", isError: true });
-      return;
-    }
-    if (!roPrice.trim()) {
-      setStatusMsg({ text: "Please enter price before sending.", isError: true });
+    if (items.length === 0) {
+      setStatusMsg({ text: "Please add at least one product to the quotation list before sending.", isError: true });
       return;
     }
 
     // 1. Download PDF to customer device
     try {
       const doc = buildPDF();
-      const filename = `Quotation_${roName.replace(/\s+/g, "_")}.pdf`;
+      const filename = `Quotation_Catalog_${Date.now().toString().slice(-6)}.pdf`;
       doc.save(filename);
     } catch (err) {
       console.error("PDF download fail before WhatsApp:", err);
@@ -466,10 +534,14 @@ export default function QuotationCenter({
     // Ensure country code is added if not present (default to India +91)
     const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
     
-    const priceNum = parseFloat(roPrice.replace(/[^0-9]/g, "")) || 0;
-    const formattedPrice = `Rs. ${priceNum.toLocaleString("en-IN")}`;
+    let itemsText = "";
+    items.forEach((item, index) => {
+      const priceNum = parseFloat(item.price.replace(/[^0-9]/g, "")) || 0;
+      const formattedPrice = `Rs. ${priceNum.toLocaleString("en-IN")}`;
+      itemsText += `${index + 1}. *${item.name}* (Capacity: ${item.capacity}) - *${formattedPrice}*\n`;
+    });
 
-    const text = `Hello *${custName.trim() ? custName : "Valued Customer"}*,\n\nHere is the official quotation for the *${roName}* RO Water Purifier from *Aquatech Services*.\n\n*Product details:*\n- Price: *${formattedPrice}*\n- Warranty: 1 year warranty on membrane & electrical parts\n- Installation: Free standard installation\n\nI have attached the professional PDF quotation for your review. Please download it and let us know if you have any questions.\n\nThank you,\n*Aquatech Services*`;
+    const text = `Hello *${custName.trim() ? custName : "Valued Customer"}*,\n\nHere is the official quotation catalog from *Aquatech Services*.\n\n*Product Options:*\n${itemsText}\nI have attached the professional PDF catalog for your review. Please download it and let us know if you have any questions.\n\nThank you,\n*Aquatech Services*`;
     
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(text)}`;
     window.open(whatsappUrl, "_blank");
@@ -522,40 +594,39 @@ export default function QuotationCenter({
       </SectionCard>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left Columns - Active Product Editor */}
+        {/* Left Columns - Active Product Editor & List */}
         <div className="space-y-6 lg:col-span-2">
-          <SectionCard title="Quotation Editor" description="Fill in the RO Purifier model details. You can load a ready-made quotation template below, or enter custom values.">
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Input
-                label="RO / Product Name"
-                value={roName}
-                onChange={setRoName}
-                placeholder="e.g. Aquatech Elite Alkaline RO"
-              />
-              <Input
-                label="Price (₹)"
-                value={roPrice}
-                onChange={setRoPrice}
-                placeholder="e.g. 8500"
-              />
+          <SectionCard title="Quotation Editor" description="Fill in the RO Purifier model details. You can add it to the active quotation list, or save it as a reusable template.">
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <div className="sm:col-span-1">
+                <Input
+                  label="RO / Product Name"
+                  value={roName}
+                  onChange={setRoName}
+                  placeholder="e.g. Aquatech Elite Alkaline RO"
+                />
+              </div>
+              <div className="sm:col-span-1">
+                <Input
+                  label="Price (₹)"
+                  value={roPrice}
+                  onChange={setRoPrice}
+                  placeholder="e.g. 8500"
+                />
+              </div>
+              <div className="sm:col-span-1">
+                <Input
+                  label="Tank Capacity"
+                  value={roCapacity}
+                  onChange={setRoCapacity}
+                  placeholder="e.g. 12 Liters"
+                />
+              </div>
             </div>
 
             <div className="mt-4">
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">
-                Technical Specifications (One item per line)
-              </label>
-              <textarea
-                value={roSpecs}
-                onChange={(e) => setRoSpecs(e.target.value)}
-                rows={5}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-900"
-                placeholder="Enter technical specifications..."
-              />
-            </div>
-
-            <div className="mt-4">
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">
-                Terms & Conditions
+                Terms & Conditions (Applies to whole Quotation)
               </label>
               <textarea
                 value={roTerms}
@@ -619,17 +690,10 @@ export default function QuotationCenter({
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={handleDownloadPDF}
-                className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+                onClick={handleAddItem}
+                className="rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
               >
-                📄 Download PDF
-              </button>
-              <button
-                type="button"
-                onClick={handleSendWhatsApp}
-                className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500"
-              >
-                📲 Send via WhatsApp
+                ➕ Add to Quotation
               </button>
               <button
                 type="button"
@@ -641,13 +705,94 @@ export default function QuotationCenter({
               </button>
             </div>
           </SectionCard>
+
+          {/* Active Items List display */}
+          {items.length > 0 ? (
+            <SectionCard title={`Active Quotation List (${items.length} item${items.length > 1 ? "s" : ""})`} description="These items will be included in the catalog PDF.">
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <table className="w-full border-collapse text-left text-sm text-slate-500">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-700 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Sr.</th>
+                      <th className="px-4 py-3">Image</th>
+                      <th className="px-4 py-3">Product Name</th>
+                      <th className="px-4 py-3">Capacity</th>
+                      <th className="px-4 py-3">Price</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {items.map((item, index) => (
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition">
+                        <td className="px-4 py-3.5 font-medium text-slate-900">{index + 1}</td>
+                        <td className="px-4 py-3.5">
+                          <div className="h-10 w-10 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
+                            {item.image ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">📷</div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 font-semibold text-slate-900">{item.name}</td>
+                        <td className="px-4 py-3.5 text-slate-600">{item.capacity}</td>
+                        <td className="px-4 py-3.5 font-semibold text-blue-600">
+                          ₹{parseFloat(item.price.replace(/[^0-9]/g, "") || "0").toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(item.id)}
+                            className="rounded-lg bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100 transition"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleDownloadPDF}
+                  className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+                >
+                  📄 Download PDF Catalog
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSendWhatsApp}
+                  className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                >
+                  📲 Send via WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearItems}
+                  className="rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+                >
+                  🗑️ Clear List
+                </button>
+              </div>
+            </SectionCard>
+          ) : (
+            <div className="rounded-2xl bg-slate-100 border-2 border-dashed border-slate-200 p-8 text-center">
+              <span className="text-3xl text-slate-400">📝</span>
+              <p className="mt-2 text-sm font-medium text-slate-600">Your quotation list is empty</p>
+              <p className="text-xs text-slate-400 mt-1">Use the editor above or load/add saved templates from the sidebar.</p>
+            </div>
+          )}
         </div>
 
         {/* Right Columns - Ready-Made / Saved Quotations Templates */}
         <div className="space-y-6 lg:col-span-1">
           <SectionCard
             title="Saved Templates"
-            description="Select a template RO model to pre-fill the editor, or delete obsolete templates."
+            description="Add templates directly to your quotation list, load them for editing, or delete obsolete templates."
           >
             {quotations.length === 0 ? (
               <div className="py-8 text-center">
@@ -670,17 +815,29 @@ export default function QuotationCenter({
                         <div className="flex h-full w-full items-center justify-center text-slate-300 text-lg">📷</div>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0 pr-6">
+                    <div className="flex-1 min-w-0 pr-12">
                       <h4 className="font-semibold text-sm text-slate-900 truncate">{q.name}</h4>
-                      <p className="text-xs font-semibold text-blue-600 mt-0.5">₹{parseFloat(q.price).toLocaleString("en-IN")}</p>
-                      {q.specs && (
+                      <p className="text-xs font-semibold text-blue-600 mt-0.5">₹{parseFloat(q.price || "0").toLocaleString("en-IN")}</p>
+                      {q.tankCapacity ? (
+                        <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                          Capacity: {q.tankCapacity}
+                        </p>
+                      ) : q.specs ? (
                         <p className="text-[10px] text-slate-400 truncate mt-0.5">
                           {q.specs.replace(/\n/g, ", ").replace(/-\s*/g, "")}
                         </p>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => handleAddTemplateDirectly(q)}
+                        className="rounded-lg bg-emerald-50 p-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-100 transition"
+                        title="Add directly to quotation"
+                      >
+                        ➕
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleSelectTemplate(q)}
