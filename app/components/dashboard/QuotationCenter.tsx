@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { jsPDF } from "jspdf";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { Input, SectionCard } from "./ui";
 import type { Customer, Quotation } from "./types";
 
@@ -39,7 +41,7 @@ export default function QuotationCenter({
   const [roTerms, setRoTerms] = useState(DEFAULT_TERMS);
 
   // Active items in the current quotation
-  const [items, setItems] = useState<{ id: string; name: string; price: string; capacity: string; image: string }[]>([]);
+  const [items, setItems] = useState<{ id: string; name: string; price: string; capacity: string; image: string; imageId?: string }[]>([]);
 
   // Customer states for active sharing
   const [custSearch, setCustSearch] = useState("");
@@ -147,6 +149,32 @@ export default function QuotationCenter({
     setStatusMsg({ text: `Loaded template: ${q.name} into inputs`, isError: false });
   };
 
+  // Helper to ensure all images in the quotation are uploaded to Firestore and have an imageId
+  const ensureImagesUploaded = async (
+    itemsList: { id: string; name: string; price: string; capacity: string; image: string; imageId?: string }[]
+  ) => {
+    return await Promise.all(
+      itemsList.map(async (item) => {
+        if (item.imageId) return item;
+        if (!item.image) return item;
+
+        // If the image is base64, upload it to shared_images
+        if (item.image.startsWith("data:")) {
+          try {
+            const docRef = await addDoc(collection(db, "shared_images"), {
+              image: item.image,
+              createdAt: serverTimestamp(),
+            });
+            return { ...item, imageId: docRef.id };
+          } catch (err) {
+            console.error("Failed to upload image to Firestore:", err);
+          }
+        }
+        return item;
+      })
+    );
+  };
+
   // Add a saved template directly to the quotation items list
   const handleAddTemplateDirectly = (q: Quotation) => {
     const newItem = {
@@ -155,6 +183,7 @@ export default function QuotationCenter({
       price: q.price,
       capacity: q.tankCapacity || "Standard",
       image: q.image || "",
+      imageId: q.id, // Reference the saved template's doc ID
     };
     setItems((prev) => [...prev, newItem]);
     setStatusMsg({ text: `Added ${q.name} to the active quotation list!`, isError: false });
@@ -228,111 +257,15 @@ export default function QuotationCenter({
   };
 
   // Generate jsPDF instance
-  const buildPDF = () => {
+  const buildPDF = (itemsList: typeof items) => {
     const doc = new jsPDF({
       orientation: "portrait",
       unit: "mm",
       format: "a4",
     });
 
-    // 1. Header background Accent Bar
-    doc.setFillColor(15, 23, 42); // slate-900
-    doc.rect(0, 0, 210, 8, "F");
-    doc.setFillColor(14, 165, 233); // sky-500
-    doc.rect(0, 8, 210, 2, "F");
-
-    // 2. Company Identity
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(30, 58, 138); // blue-900
-    doc.text("AQUATECH SERVICES", 15, 25);
-
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105); // slate-600
-    doc.text("Complete RO Water Purifier Solutions", 15, 30);
-
-    // 3. Contact details (right side header)
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.text("Mob: +91 96508 30901, 97115 81142", 135, 21);
-    doc.text("Email: aquatechservices30@gmail.com", 135, 26);
-    doc.text("New Delhi, India", 135, 31);
-
-    // Decorative Separator Line
-    doc.setDrawColor(226, 232, 240); // slate-200
-    doc.setLineWidth(0.5);
-    doc.line(15, 36, 195, 36);
-
-    // 4. Quotation Meta
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.setTextColor(15, 23, 42);
-    doc.text("QUOTATION / CATALOG", 15, 46);
-
-    const todayStr = new Date().toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-    const quoteNo = `QT-${Date.now().toString().slice(-6)}`;
-    const validStr = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Quotation No: ${quoteNo}`, 135, 43);
-    doc.text(`Date: ${todayStr}`, 135, 48);
-    doc.text(`Valid Until: ${validStr}`, 135, 53);
-
-    // 5. Customer & Company Info Blocks
-    doc.setFillColor(248, 250, 252); // slate-50 background for customer info
-    doc.roundedRect(15, 58, 85, 22, 2, 2, "F");
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(15, 58, 85, 22, 2, 2, "S");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text("PREPARED FOR:", 18, 63);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
-    doc.text(custName.trim() ? custName : "Valued Customer", 18, 69);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    if (custPhone.trim()) {
-      doc.text(`Phone: +91 ${custPhone}`, 18, 75);
-    } else {
-      doc.text("Phone: Not specified", 18, 75);
-    }
-
-    // Company info block on right
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(110, 58, 85, 22, 2, 2, "F");
-    doc.roundedRect(110, 58, 85, 22, 2, 2, "S");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text("PREPARED BY:", 113, 63);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
-    doc.text("Aquatech Services", 113, 69);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.text("Mob: +91 96508 30901, 97115 81142", 113, 75);
-
-    // 6. Main Pricing Table (CATALOG OF MULTIPLE ITEMS)
-    const tableY = 88;
+    // 1. Start Table at Y = 15mm
+    const tableY = 15;
     doc.setFillColor(15, 23, 42); // slate-900 header
     doc.rect(15, tableY, 180, 8, "F");
 
@@ -346,29 +279,15 @@ export default function QuotationCenter({
 
     let currentY = tableY + 8;
     const rowHeight = 26;
-    const pageHeightLimit = 240;
+    const pageHeightLimit = 270;
 
-    items.forEach((item, idx) => {
+    itemsList.forEach((item, idx) => {
       // Check if we need to add a page
       if (currentY + rowHeight > pageHeightLimit) {
         doc.addPage();
         
-        // Draw top accent header on new page
-        doc.setFillColor(15, 23, 42);
-        doc.rect(0, 0, 210, 8, "F");
-        doc.setFillColor(14, 165, 233);
-        doc.rect(0, 8, 210, 2, "F");
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(30, 58, 138);
-        doc.text("AQUATECH SERVICES - PRODUCT CATALOG (Contd.)", 15, 18);
-        
-        doc.setDrawColor(226, 232, 240);
-        doc.line(15, 22, 195, 22);
-
         // Draw Table Header on new page
-        currentY = 28;
+        currentY = 15;
         doc.setFillColor(15, 23, 42);
         doc.rect(15, currentY, 180, 8, "F");
 
@@ -394,10 +313,15 @@ export default function QuotationCenter({
       doc.setTextColor(15, 23, 42);
       doc.text(String(idx + 1), 19, currentY + rowHeight / 2 + 1);
 
-      // Draw Thumbnail Image
+      // Draw Thumbnail Image and add interactive link to the dynamic viewer
       if (item.image) {
         try {
           doc.addImage(item.image, "JPEG", 27, currentY + 2, rowHeight - 4, rowHeight - 4);
+          
+          if (item.imageId) {
+            const url = `${window.location.origin}/image/${item.imageId}`;
+            doc.link(27, currentY + 2, rowHeight - 4, rowHeight - 4, { url });
+          }
         } catch (err) {
           console.error("PDF image drawing error:", err);
           doc.setFontSize(8);
@@ -434,16 +358,11 @@ export default function QuotationCenter({
       currentY += rowHeight;
     });
 
-    // 8. Terms & Conditions (dynamically positioned or on a new page)
+    // 2. Terms & Conditions (dynamically positioned or on a new page)
     let termsY = currentY + 12;
     if (termsY + 45 > 297) {
       doc.addPage();
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, 210, 8, "F");
-      doc.setFillColor(14, 165, 233);
-      doc.rect(0, 8, 210, 2, "F");
-      
-      termsY = 20;
+      termsY = 15;
     }
 
     doc.setFont("helvetica", "bold");
@@ -467,50 +386,34 @@ export default function QuotationCenter({
       }
     });
 
-    // 9. Signatures and Thank You Note
-    const footerY = Math.max(tY + 5, 250);
-    doc.setDrawColor(226, 232, 240);
-    doc.line(15, footerY, 195, footerY);
-
-    // Signature Area
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text("Client Confirmation", 15, footerY + 12);
-    doc.text("For Aquatech Services", 150, footerY + 12);
-    doc.text("Authorized Signatory", 150, footerY + 22);
-
-    doc.setDrawColor(203, 213, 225);
-    doc.line(15, footerY + 8, 55, footerY + 8);
-    doc.line(150, footerY + 8, 190, footerY + 8);
-
-    // Clean Water Tagline Centered
-    doc.setFont("helvetica", "bolditalic");
-    doc.setFontSize(9);
-    doc.setTextColor(14, 165, 233); // sky-500
-    doc.text("Clean Water for a Healthier Life", 80, footerY + 28);
-
     return doc;
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (items.length === 0) {
       setStatusMsg({ text: "Please add at least one product to the quotation list before generating PDF.", isError: true });
       return;
     }
 
+    setLoading(true);
+    setStatusMsg({ text: "Preparing PDF & uploading assets...", isError: false });
     try {
-      const doc = buildPDF();
+      const uploadedItems = await ensureImagesUploaded(items);
+      setItems(uploadedItems);
+
+      const doc = buildPDF(uploadedItems);
       const filename = `Quotation_Catalog_${Date.now().toString().slice(-6)}.pdf`;
       doc.save(filename);
       setStatusMsg({ text: "PDF downloaded successfully!", isError: false });
     } catch (err) {
       console.error(err);
       setStatusMsg({ text: "Failed to generate PDF.", isError: true });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleSendWhatsApp = () => {
+  const handleSendWhatsApp = async () => {
     if (!custPhone.trim()) {
       setStatusMsg({ text: "Please enter customer's mobile number to send via WhatsApp.", isError: true });
       return;
@@ -520,13 +423,20 @@ export default function QuotationCenter({
       return;
     }
 
-    // 1. Download PDF to customer device
+    setLoading(true);
+    setStatusMsg({ text: "Preparing PDF & uploading assets...", isError: false });
+    let uploadedItems = items;
     try {
-      const doc = buildPDF();
+      uploadedItems = await ensureImagesUploaded(items);
+      setItems(uploadedItems);
+
+      const doc = buildPDF(uploadedItems);
       const filename = `Quotation_Catalog_${Date.now().toString().slice(-6)}.pdf`;
       doc.save(filename);
     } catch (err) {
       console.error("PDF download fail before WhatsApp:", err);
+    } finally {
+      setLoading(false);
     }
 
     // 2. Prefill professional text message and open WhatsApp
@@ -535,7 +445,7 @@ export default function QuotationCenter({
     const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
     
     let itemsText = "";
-    items.forEach((item, index) => {
+    uploadedItems.forEach((item, index) => {
       const priceNum = parseFloat(item.price.replace(/[^0-9]/g, "")) || 0;
       const formattedPrice = `Rs. ${priceNum.toLocaleString("en-IN")}`;
       itemsText += `${index + 1}. *${item.name}* (Capacity: ${item.capacity}) - *${formattedPrice}*\n`;

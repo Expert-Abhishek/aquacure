@@ -17,7 +17,6 @@ import {
 import { db } from "@/lib/firebase";
 import TaskBoard from "./TaskBoard";
 import QueryCenter from "./QueryCenter";
-import QuotationCenter from "./QuotationCenter";
 import { Input } from "./ui";
 import {
   ADMIN_USER,
@@ -32,7 +31,7 @@ import {
 } from "./types";
 
 interface MainDashboardProps {
-  initialMenu?: "task" | "query" | "bills" | "quotation";
+  initialMenu?: "task" | "query" | "bills";
 }
 
 function normalizeSheetId(value: string): string {
@@ -141,15 +140,13 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [pageSize, setPageSize] = useState(10);
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "bills" | "quotation">(initialMenu);
+  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "bills">(initialMenu || "task");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [quotations, setQuotations] = useState<Quotation[]>([]);
 
   const sidebarItems = [
     { key: "task" as const, label: "Task", description: "Active complaints and work queue" },
     { key: "query" as const, label: "Query", description: "Customer follow-ups and admin queries" },
     { key: "bills" as const, label: "Bills", description: "Billing and invoice tracking" },
-    { key: "quotation" as const, label: "Quotation", description: "Generate and send RO quotations" },
   ];
 
   useEffect(() => {
@@ -237,28 +234,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const quotationsQuery = query(collection(db, "quotations"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(
-      quotationsQuery,
-      (snapshot) => {
-        setQuotations(
-          snapshot.docs.map((docSnapshot) => ({
-            id: docSnapshot.id,
-            name: docSnapshot.data().name ?? "",
-            price: docSnapshot.data().price ?? "",
-            image: docSnapshot.data().image ?? "",
-            specs: docSnapshot.data().specs ?? "",
-            tankCapacity: docSnapshot.data().tankCapacity ?? "",
-            createdAt: docSnapshot.data().createdAt ?? null,
-          })),
-        );
-      },
-      () => {},
-    );
 
-    return () => unsubscribe();
-  }, []);
 
   const filteredTasks = useMemo(() => {
     if (filterStatus !== "all") return tasks.filter((task) => task.status === filterStatus);
@@ -576,29 +552,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     }
   };
 
-  const addQuotation = async (name: string, price: string, image: string, specs: string, tankCapacity?: string) => {
-    try {
-      await addDoc(collection(db, "quotations"), {
-        name,
-        price,
-        image,
-        specs,
-        tankCapacity: tankCapacity ?? "",
-        createdAt: serverTimestamp(),
-      });
-    } catch {
-      alert("Failed to save quotation template.");
-    }
-  };
 
-  const deleteQuotation = async (quotationId: string) => {
-    if (!window.confirm("Delete this quotation template?")) return;
-    try {
-      await deleteDoc(doc(db, "quotations", quotationId));
-    } catch {
-      alert("Failed to delete quotation template.");
-    }
-  };
 
   const updateComment = async (taskId: string) => {
     try {
@@ -821,14 +775,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             </section>
           )}
 
-          {activeMenu === "quotation" && (
-            <QuotationCenter
-              sheetCustomers={sheetCustomers}
-              quotations={quotations}
-              onAddQuotation={addQuotation}
-              onDeleteQuotation={deleteQuotation}
-            />
-          )}
+
         </main>
       </div>
     </div>
