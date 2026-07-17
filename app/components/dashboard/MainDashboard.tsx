@@ -371,7 +371,10 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
 
     // 3. Sheet customers with "balance" in their price
     const balance = sheetCustomers
-      .filter((c) => c.amcPrice?.toLowerCase().includes("balance"))
+      .filter((c) => {
+        const price = c.amcPrice?.toLowerCase() || "";
+        return price.includes("balance") || price.includes("bal");
+      })
       .filter((c) => c.active !== "Not") // If they are marked 'Not', they are handled as inactive above
       .filter((c) => !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name))
       .map((c) => ({
@@ -1200,7 +1203,9 @@ function doPost(e) {
                                   <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
                                   <td className="px-4 py-3">
                                     {(() => {
-                                      const isInactive = c.active === "Not" || inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name);
+                                      const priceLower = c.amcPrice?.toLowerCase() || "";
+                                      const hasBalance = priceLower.includes("balance") || priceLower.includes("bal");
+                                      const isInactive = c.active === "Not" || hasBalance || inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name);
                                       return isInactive ? (
                                         <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">
                                           Inactive
@@ -1213,7 +1218,7 @@ function doPost(e) {
                                     })()}
                                   </td>
                                   <td className="px-4 py-3 font-semibold text-blue-600">
-                                    {c.amcPrice ? `₹${parseFloat(c.amcPrice.replace(/[^0-9]/g, "") || "0").toLocaleString("en-IN")}` : "—"}
+                                    {c.amcPrice || "—"}
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <div className="flex justify-end gap-2">
@@ -1227,7 +1232,9 @@ function doPost(e) {
                                       </button>
                                       {(() => {
                                         const inactiveDoc = inactiveCustomers.find((ic) => ic.phone === c.phone && ic.name === c.name);
-                                        const isInactive = c.active === "Not" || !!inactiveDoc;
+                                        const priceLower = c.amcPrice?.toLowerCase() || "";
+                                        const hasBalance = priceLower.includes("balance") || priceLower.includes("bal");
+                                        const isInactive = c.active === "Not" || hasBalance || !!inactiveDoc;
                                         return isInactive ? (
                                           <button
                                             type="button"
