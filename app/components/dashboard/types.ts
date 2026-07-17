@@ -19,6 +19,7 @@ export interface Customer {
   phone: string;
   amcMonth: string;
   amcPrice: string;
+  rowNum?: number;
 }
 
 export interface Task {

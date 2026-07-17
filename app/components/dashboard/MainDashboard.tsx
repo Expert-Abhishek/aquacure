@@ -44,26 +44,33 @@ function normalizeSheetId(value: string): string {
   return trimmed;
 }
 
-function parseSheetValues(values: string[][], sheetId: string): Omit<Customer, "id">[] {
+function parseSheetValues(values: string[][], sheetId: string): (Omit<Customer, "id"> & { _sheetId: string; rowNum: number })[] {
   if (!values || values.length === 0) return [];
   const headers = values[0].map((header) => header.toString().toLowerCase().trim());
-  const rows = values.slice(1).filter((row) => row.some((cell) => cell.toString().trim() !== ""));
+  const parsedRows: (Omit<Customer, "id"> & { _sheetId: string; rowNum: number })[] = [];
 
-  return rows.map((row) => {
-    const map: Record<string, string> = {};
-    headers.forEach((header, index) => {
-      map[header] = row[index]?.toString().trim() ?? "";
-    });
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const isNotEmpty = row.some((cell) => cell.toString().trim() !== "");
+    if (isNotEmpty) {
+      const map: Record<string, string> = {};
+      headers.forEach((header, index) => {
+        map[header] = row[index]?.toString().trim() ?? "";
+      });
 
-    return {
-      name: map["name"] || map["customer"] || "",
-      address: map["address"] || "",
-      phone: map["telephone"] || map["mobile"] || map["contact"] || "",
-      amcMonth: map["month of new amc"] || map["month"] || map["amc"] || "",
-      amcPrice: map["2026"] || map["price of amc"] || map["amc price"] || "",
-      _sheetId: sheetId,
-    } as Omit<Customer, "id"> & { _sheetId: string };
-  });
+      parsedRows.push({
+        name: map["name"] || map["customer"] || "",
+        address: map["address"] || "",
+        phone: map["telephone"] || map["mobile"] || map["contact"] || map["phone"] || "",
+        amcMonth: map["month of new amc"] || map["month"] || map["amc"] || "",
+        amcPrice: map["2026"] || map["price of amc"] || map["amc price"] || "",
+        _sheetId: sheetId,
+        rowNum: i + 1, // Row 1 is header, data starts at Row 2 (index 1)
+      });
+    }
+  }
+
+  return parsedRows;
 }
 
 function buildWhatsAppUrl(techPhone: string, task: Task): string {
@@ -108,6 +115,11 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [sheetLoading, setSheetLoading] = useState(false);
   const [sheetError, setSheetError] = useState("");
 
+  // Configurable spreadsheet states
+  const [sheetId, setSheetId] = useState(loadSetting("sheetId", SHEET_ID_CONST));
+  const [sheetApiKey, setSheetApiKey] = useState(loadSetting("sheetApiKey", SHEET_API_KEY));
+  const [sheetScriptUrl, setSheetScriptUrl] = useState(loadSetting("sheetScriptUrl", ""));
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sheetCustomers, setSheetCustomers] = useState<Customer[]>([]);
   const [firestoreLoading, setFirestoreLoading] = useState(true);
@@ -134,6 +146,25 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [queryComment, setQueryComment] = useState("");
   const [queryError, setQueryError] = useState("");
   const [queries, setQueries] = useState<QueryItem[]>([]);
+
+  // Customer Management and Search States
+  const [sheetSearch, setSheetSearch] = useState("");
+  const [sheetPage, setSheetPage] = useState(1);
+  const sheetPageSize = 10;
+
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [customerModalMode, setCustomerModalMode] = useState<"add" | "edit">("add");
+  const [customerEditRow, setCustomerEditRow] = useState<number | null>(null);
+
+  const [custFormName, setCustFormName] = useState("");
+  const [custFormAddress, setCustFormAddress] = useState("");
+  const [custFormPhone, setCustFormPhone] = useState("");
+  const [custFormAmcMonth, setCustFormAmcMonth] = useState("");
+  const [custFormAmcPrice, setCustFormAmcPrice] = useState("");
+
+  const [custFormLoading, setCustFormLoading] = useState(false);
+  const [custFormError, setCustFormError] = useState("");
+  const [custFormSuccess, setCustFormSuccess] = useState("");
 
   const [tab, setTab] = useState<"tasks" | "import">("tasks");
   const [page, setPage] = useState(1);
@@ -202,6 +233,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             phone: docSnapshot.data().phone ?? "",
             amcMonth: docSnapshot.data().amcMonth ?? "",
             amcPrice: docSnapshot.data().amcPrice ?? "",
+            rowNum: docSnapshot.data().rowNum ?? undefined,
           })),
         ),
       )
@@ -270,6 +302,27 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
       .slice(0, 6);
   }, [querySearch, sheetCustomers]);
 
+  const filteredSheetCustomers = useMemo(() => {
+    if (!sheetSearch.trim()) return sheetCustomers;
+    const queryStr = sheetSearch.toLowerCase();
+    return sheetCustomers.filter(
+      (c) =>
+        c.name.toLowerCase().includes(queryStr) ||
+        c.phone.toLowerCase().includes(queryStr) ||
+        c.address.toLowerCase().includes(queryStr)
+    );
+  }, [sheetSearch, sheetCustomers]);
+
+  const totalSheetPages = Math.ceil(filteredSheetCustomers.length / sheetPageSize) || 1;
+  const pageSheetCustomers = useMemo(() => {
+    const start = (sheetPage - 1) * sheetPageSize;
+    return filteredSheetCustomers.slice(start, start + sheetPageSize);
+  }, [sheetPage, filteredSheetCustomers]);
+
+  useEffect(() => {
+    setSheetPage(1);
+  }, [sheetSearch]);
+
   const handleLogin = () => {
     if (username === ADMIN_USER.username && password === ADMIN_USER.password) {
       setLoggedIn(true);
@@ -286,13 +339,13 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setSheetLoading(true);
 
     try {
-      const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_CONST}/values/${encodeURIComponent(SHEET_RANGE)}?majorDimension=ROWS&key=${SHEET_API_KEY}`);
+      const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(SHEET_RANGE)}?majorDimension=ROWS&key=${sheetApiKey}`);
       const body = (await response.json().catch(() => ({}))) as { values?: string[][]; error?: { message?: string } };
 
       if (!response.ok) throw new Error(body.error?.message ?? `HTTP ${response.status}`);
       if (!Array.isArray(body.values)) throw new Error("No data returned. Check sheet visibility and range.");
 
-      const parsed = parseSheetValues(body.values, SHEET_ID_CONST);
+      const parsed = parseSheetValues(body.values, sheetId);
       const currentSnapshot = await getDocs(collection(db, "customers"));
       const batch = writeBatch(db);
       currentSnapshot.docs.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
@@ -308,6 +361,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: docSnapshot.data().phone ?? "",
           amcMonth: docSnapshot.data().amcMonth ?? "",
           amcPrice: docSnapshot.data().amcPrice ?? "",
+          rowNum: docSnapshot.data().rowNum ?? undefined,
         })),
       );
     } catch (error) {
@@ -331,6 +385,136 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setQueryAddress(customer.address);
     setQueryPhone(customer.phone);
     setQuerySearch("");
+  };
+
+  const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string }) => {
+    if (!sheetScriptUrl.trim()) {
+      throw new Error("Google Apps Script Web App URL is not configured. Please set it in the settings panel below.");
+    }
+
+    const res = await fetch(sheetScriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({
+        action: "add",
+        name: customer.name,
+        address: customer.address,
+        phone: customer.phone,
+        amcMonth: customer.amcMonth,
+        amcPrice: customer.amcPrice,
+      }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+    if (body.success === false) {
+      throw new Error(body.error || "Failed to add customer to Google Sheet.");
+    }
+  };
+
+  const editCustomerInSheet = async (rowNum: number, customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string }) => {
+    if (!sheetScriptUrl.trim()) {
+      throw new Error("Google Apps Script Web App URL is not configured. Please set it in the settings panel below.");
+    }
+
+    const res = await fetch(sheetScriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({
+        action: "edit",
+        rowNum,
+        name: customer.name,
+        address: customer.address,
+        phone: customer.phone,
+        amcMonth: customer.amcMonth,
+        amcPrice: customer.amcPrice,
+      }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+    if (body.success === false) {
+      throw new Error(body.error || "Failed to update customer in Google Sheet.");
+    }
+  };
+
+  const handleOpenAddCustomer = () => {
+    setCustomerModalMode("add");
+    setCustomerEditRow(null);
+    setCustFormName("");
+    setCustFormAddress("");
+    setCustFormPhone("");
+    setCustFormAmcMonth("");
+    setCustFormAmcPrice("");
+    setCustFormError("");
+    setCustFormSuccess("");
+    setShowCustomerModal(true);
+  };
+
+  const handleOpenEditCustomer = (customer: Customer) => {
+    setCustomerModalMode("edit");
+    setCustomerEditRow(customer.rowNum || null);
+    setCustFormName(customer.name);
+    setCustFormAddress(customer.address);
+    setCustFormPhone(customer.phone);
+    setCustFormAmcMonth(customer.amcMonth);
+    setCustFormAmcPrice(customer.amcPrice);
+    setCustFormError("");
+    setCustFormSuccess("");
+    setShowCustomerModal(true);
+  };
+
+  const handleSaveCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!custFormName.trim()) {
+      setCustFormError("Name is required.");
+      return;
+    }
+    if (!custFormAddress.trim()) {
+      setCustFormError("Address is required.");
+      return;
+    }
+    if (!custFormPhone.trim()) {
+      setCustFormError("Phone number is required.");
+      return;
+    }
+
+    setCustFormLoading(true);
+    setCustFormError("");
+    setCustFormSuccess("");
+
+    try {
+      if (customerModalMode === "add") {
+        await addCustomerToSheet({
+          name: custFormName.trim(),
+          address: custFormAddress.trim(),
+          phone: custFormPhone.trim(),
+          amcMonth: custFormAmcMonth.trim(),
+          amcPrice: custFormAmcPrice.trim(),
+        });
+        setCustFormSuccess("Customer successfully added to Google Sheet!");
+      } else {
+        if (!customerEditRow) throw new Error("Missing row number for editing.");
+        await editCustomerInSheet(customerEditRow, {
+          name: custFormName.trim(),
+          address: custFormAddress.trim(),
+          phone: custFormPhone.trim(),
+          amcMonth: custFormAmcMonth.trim(),
+          amcPrice: custFormAmcPrice.trim(),
+        });
+        setCustFormSuccess("Customer successfully updated in Google Sheet!");
+      }
+
+      // Reload sheet details to sync back to Firestore
+      await fetchSheet();
+
+      // Close modal after delay
+      setTimeout(() => {
+        setShowCustomerModal(false);
+      }, 1500);
+    } catch (err) {
+      setCustFormError(err instanceof Error ? err.message : "An error occurred.");
+    } finally {
+      setCustFormLoading(false);
+    }
   };
 
   const startTaskEdit = (task: Task) => {
@@ -674,17 +858,255 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
               </div>
 
               {tab === "import" ? (
-                <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h2 className="text-lg font-semibold">Google Sheets Import</h2>
-                  <p className="mt-1 text-sm text-slate-500">Customers are synced from Google Sheets into Firestore. Expected headers: name, address, phone, amc month, price.</p>
-                  <div className="mt-4 flex items-center gap-4">
-                    <button type="button" onClick={fetchSheet} disabled={sheetLoading} className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50">
-                      {sheetLoading ? "Loading…" : "↻ Reload Sheet"}
-                    </button>
-                    {sheetCustomers.length > 0 && <span className="text-sm font-medium text-emerald-600">✓ {sheetCustomers.length} customers loaded</span>}
-                  </div>
-                  {sheetError && <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{sheetError}</div>}
-                </section>
+                <div className="space-y-6">
+                  {/* Google Sheets Connection Settings Accordion */}
+                  <details className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm [&_summary::-webkit-details-marker]:hidden">
+                    <summary className="flex cursor-pointer items-center justify-between font-semibold text-slate-900 list-none">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl">⚙️</span>
+                        <div>
+                          <h3 className="text-md font-semibold text-slate-900">Google Sheet Connection Credentials</h3>
+                          <p className="text-xs text-slate-500 font-normal">Configure custom sheet IDs and API writes.</p>
+                        </div>
+                      </div>
+                      <span className="transition group-open:rotate-180 text-slate-400">
+                        <svg fill="none" height="24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
+                      </span>
+                    </summary>
+                    <div className="mt-6 border-t border-slate-100 pt-6 space-y-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Input
+                          label="Spreadsheet ID"
+                          value={sheetId}
+                          onChange={(v) => {
+                            setSheetId(v);
+                            saveSetting("sheetId", v);
+                          }}
+                          placeholder="Spreadsheet ID"
+                        />
+                        <Input
+                          label="Sheets API Key (Read-only)"
+                          value={sheetApiKey}
+                          onChange={(v) => {
+                            setSheetApiKey(v);
+                            saveSetting("sheetApiKey", v);
+                          }}
+                          placeholder="API Key"
+                        />
+                      </div>
+                      <Input
+                        label="Google Apps Script Web App URL (For Add/Edit Writes)"
+                        value={sheetScriptUrl}
+                        onChange={(v) => {
+                          setSheetScriptUrl(v);
+                          saveSetting("sheetScriptUrl", v);
+                        }}
+                        placeholder="https://script.google.com/macros/s/.../exec"
+                      />
+
+                      {/* Setup Instructions Card */}
+                      <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 mt-4">
+                        <h4 className="text-sm font-bold text-blue-900 flex items-center gap-1.5">
+                          <span>💡</span> Apps Script Connection Instructions
+                        </h4>
+                        <p className="text-xs text-blue-800 mt-1 leading-relaxed">
+                          To support saving changes and adding new rows back to your spreadsheet from the app:
+                        </p>
+                        <ol className="list-decimal list-inside text-[11px] text-blue-700 mt-2 space-y-1 leading-relaxed">
+                          <li>Open your Google Sheet and navigate to <strong>Extensions &rarr; Apps Script</strong>.</li>
+                          <li>Delete any template code and paste the custom integration code (provided below).</li>
+                          <li>Click <strong>Deploy &rarr; New Deployment</strong>, select <strong>Web App</strong>.</li>
+                          <li>Set <strong>Execute as:</strong> <code>Me</code>, and <strong>Who has access:</strong> <code>Anyone</code>.</li>
+                          <li>Deploy, authorize permissions, copy the Web App URL, and paste it into the field above.</li>
+                        </ol>
+
+                        <details className="mt-4 rounded-xl border border-blue-200 bg-white p-3 [&_summary::-webkit-details-marker]:hidden">
+                          <summary className="cursor-pointer text-xs font-semibold text-blue-900 flex items-center justify-between">
+                            <span>📋 View Apps Script Code</span>
+                            <span className="text-[10px] bg-blue-100 px-2 py-0.5 rounded-full">Copy Code</span>
+                          </summary>
+                          <pre className="mt-2 block w-full overflow-x-auto rounded-lg bg-slate-900 p-3 text-[10px] font-mono text-slate-300">
+{`function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("customer");
+  var rows = sheet.getDataRange().getValues();
+  return ContentService.createTextOutput(JSON.stringify({ values: rows }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var data = JSON.parse(e.postData.contents);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("customer");
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var colMap = {};
+  for (var i = 0; i < headers.length; i++) {
+    colMap[headers[i].toString().toLowerCase().trim()] = i + 1;
+  }
+  
+  var nameCol = colMap["name"] || colMap["customer"] || 1;
+  var addrCol = colMap["address"] || 2;
+  var phoneCol = colMap["telephone"] || colMap["mobile"] || colMap["contact"] || colMap["phone"] || 3;
+  var monthCol = colMap["month of new amc"] || colMap["month"] || colMap["amc"] || 4;
+  var priceCol = colMap["2026"] || colMap["price of amc"] || colMap["amc price"] || 5;
+
+  if (data.action === "add") {
+    var nextRow = sheet.getLastRow() + 1;
+    sheet.getRange(nextRow, nameCol).setValue(data.name || "");
+    sheet.getRange(nextRow, addrCol).setValue(data.address || "");
+    sheet.getRange(nextRow, phoneCol).setValue(data.phone || "");
+    sheet.getRange(nextRow, monthCol).setValue(data.amcMonth || "");
+    sheet.getRange(nextRow, priceCol).setValue(data.amcPrice || "");
+    return ContentService.createTextOutput(JSON.stringify({ success: true, rowNum: nextRow }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } else if (data.action === "edit") {
+    var rowNum = parseInt(data.rowNum);
+    if (!rowNum || rowNum < 2) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Invalid rowNum" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    if (data.name !== undefined) sheet.getRange(rowNum, nameCol).setValue(data.name);
+    if (data.address !== undefined) sheet.getRange(rowNum, addrCol).setValue(data.address);
+    if (data.phone !== undefined) sheet.getRange(rowNum, phoneCol).setValue(data.phone);
+    if (data.amcMonth !== undefined) sheet.getRange(rowNum, monthCol).setValue(data.amcMonth);
+    if (data.amcPrice !== undefined) sheet.getRange(rowNum, priceCol).setValue(data.amcPrice);
+    return ContentService.createTextOutput(JSON.stringify({ success: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Invalid action" }))
+    .setMimeType(ContentService.MimeType.JSON);
+}`}
+                          </pre>
+                        </details>
+                      </div>
+                    </div>
+                  </details>
+
+                  {/* Main Customer List Directory */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4">
+                      <div>
+                        <h2 className="text-lg font-bold text-slate-900">Sheet Customer Directory</h2>
+                        <p className="text-xs text-slate-500">View, search, add, or edit customers in the synced Google Sheet.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleOpenAddCustomer}
+                          className="rounded-2xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-500 cursor-pointer"
+                        >
+                          ➕ Add Customer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={fetchSheet}
+                          disabled={sheetLoading}
+                          className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                        >
+                          {sheetLoading ? "Syncing..." : "↻ Sync & Reload"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Search and Feedback Status */}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+                      <div className="w-full sm:max-w-xs">
+                        <input
+                          type="text"
+                          placeholder="Search directory by name, phone, address..."
+                          value={sheetSearch}
+                          onChange={(e) => setSheetSearch(e.target.value)}
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs outline-none focus:border-slate-400"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {sheetCustomers.length > 0 && (
+                          <span className="text-xs font-medium text-emerald-600">
+                            ✓ {sheetCustomers.length} records loaded ({filteredSheetCustomers.length} matches)
+                          </span>
+                        )}
+                        {sheetError && (
+                          <span className="text-xs font-medium text-rose-600">
+                            ⚠️ Error: {sheetError}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Directory Table */}
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      <table className="w-full border-collapse text-left text-xs text-slate-500">
+                        <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
+                          <tr>
+                            <th className="px-4 py-3">Row</th>
+                            <th className="px-4 py-3">Customer Name</th>
+                            <th className="px-4 py-3">Address</th>
+                            <th className="px-4 py-3">Phone</th>
+                            <th className="px-4 py-3">AMC Month</th>
+                            <th className="px-4 py-3">Price</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {pageSheetCustomers.length > 0 ? (
+                            pageSheetCustomers.map((c) => (
+                              <tr key={c.id} className="hover:bg-slate-50/50 transition">
+                                <td className="px-4 py-3 text-slate-400 font-mono">#{c.rowNum ?? "?"}</td>
+                                <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
+                                <td className="px-4 py-3 max-w-[200px] truncate" title={c.address}>{c.address}</td>
+                                <td className="px-4 py-3 font-mono">{c.phone}</td>
+                                <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
+                                <td className="px-4 py-3 font-semibold text-blue-600">
+                                  {c.amcPrice ? `₹${parseFloat(c.amcPrice.replace(/[^0-9]/g, "") || "0").toLocaleString("en-IN")}` : "—"}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditCustomer(c)}
+                                    className="rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-600 hover:bg-blue-100 transition cursor-pointer"
+                                  >
+                                    Edit Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={7} className="text-center py-8 text-slate-400">
+                                No customer records found.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {totalSheetPages > 1 && (
+                      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+                        <span className="text-[11px] text-slate-500">
+                          Page {sheetPage} of {totalSheetPages}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={sheetPage === 1}
+                            onClick={() => setSheetPage((p) => Math.max(1, p - 1))}
+                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
+                          >
+                            Previous
+                          </button>
+                          <button
+                            type="button"
+                            disabled={sheetPage === totalSheetPages}
+                            onClick={() => setSheetPage((p) => Math.min(totalSheetPages, p + 1))}
+                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </div>
               ) : (
                 <TaskBoard
                   tasks={tasks}
@@ -775,6 +1197,89 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             </section>
           )}
 
+
+        {/* Customer Add/Edit Modal */}
+        {showCustomerModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                <h3 className="text-lg font-bold text-slate-900">
+                  {customerModalMode === "add" ? "Add Customer to Sheet" : "Edit Customer Details"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerModal(false)}
+                  className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveCustomer} className="space-y-4">
+                <Input
+                  label="Customer Name"
+                  value={custFormName}
+                  onChange={setCustFormName}
+                  placeholder="e.g. Ramesh Kumar"
+                />
+                <Input
+                  label="Address"
+                  value={custFormAddress}
+                  onChange={setCustFormAddress}
+                  placeholder="e.g. Sector-15, Rohini, Delhi"
+                />
+                <Input
+                  label="Phone / Mobile Number"
+                  value={custFormPhone}
+                  onChange={setCustFormPhone}
+                  placeholder="e.g. 9876543210"
+                />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="AMC Month"
+                    value={custFormAmcMonth}
+                    onChange={setCustFormAmcMonth}
+                    placeholder="e.g. August"
+                  />
+                  <Input
+                    label="AMC Price (₹)"
+                    value={custFormAmcPrice}
+                    onChange={setCustFormAmcPrice}
+                    placeholder="e.g. 4500"
+                  />
+                </div>
+
+                {custFormError && (
+                  <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {custFormError}
+                  </div>
+                )}
+                {custFormSuccess && (
+                  <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                    {custFormSuccess}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomerModal(false)}
+                    className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={custFormLoading}
+                    className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {custFormLoading ? "Saving..." : "Save Customer"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         </main>
       </div>
