@@ -332,19 +332,16 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   }, [querySearch, sheetCustomers]);
 
   const filteredSheetCustomers = useMemo(() => {
-    // Filter out manually marked inactive customers AND sheet customers marked as 'Not' active
-    const activeCustomers = sheetCustomers.filter(
-      (c) => c.active !== "Not" && !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name)
-    );
-    if (!sheetSearch.trim()) return activeCustomers;
+    // Keep all customers in the directory list, regardless of active state
+    if (!sheetSearch.trim()) return sheetCustomers;
     const queryStr = sheetSearch.toLowerCase();
-    return activeCustomers.filter(
+    return sheetCustomers.filter(
       (c) =>
         c.name.toLowerCase().includes(queryStr) ||
         c.phone.toLowerCase().includes(queryStr) ||
         c.address.toLowerCase().includes(queryStr)
     );
-  }, [sheetSearch, sheetCustomers, inactiveCustomers]);
+  }, [sheetSearch, sheetCustomers]);
 
   const totalSheetPages = Math.ceil(filteredSheetCustomers.length / sheetPageSize) || 1;
   const pageSheetCustomers = useMemo(() => {
@@ -609,6 +606,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   };
 
   const markCustomerInactive = async (customer: Customer) => {
+    setSheetLoading(true);
     try {
       await addDoc(collection(db, "inactive_customers"), {
         name: customer.name,
@@ -619,18 +617,51 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         rowNum: customer.rowNum || null,
         createdAt: serverTimestamp(),
       });
+
+      if (customer.rowNum) {
+        await editCustomerInSheet(customer.rowNum, {
+          name: customer.name,
+          address: customer.address,
+          phone: customer.phone,
+          amcMonth: customer.amcMonth || "",
+          amcPrice: customer.amcPrice || "",
+          active: "Not",
+        });
+      }
+
+      await fetchSheet();
     } catch (error) {
       console.error("Error marking customer inactive:", error);
       alert("Failed to mark customer as inactive.");
+    } finally {
+      setSheetLoading(false);
     }
   };
 
   const markCustomerActive = async (id: string) => {
+    setSheetLoading(true);
     try {
+      const inactiveCust = inactiveCustomers.find((ic) => ic.id === id);
+      if (inactiveCust) {
+        const rowNum = inactiveCust.rowNum;
+        if (rowNum) {
+          await editCustomerInSheet(rowNum, {
+            name: inactiveCust.name || "",
+            address: inactiveCust.address || "",
+            phone: inactiveCust.phone || "",
+            amcMonth: inactiveCust.amcMonth || "",
+            amcPrice: inactiveCust.amcPrice || "",
+            active: "Active",
+          });
+        }
+      }
       await deleteDoc(doc(db, "inactive_customers", id));
+      await fetchSheet();
     } catch (error) {
       console.error("Error removing customer from inactive list:", error);
       alert("Failed to remove customer from inactive list.");
+    } finally {
+      setSheetLoading(false);
     }
   };
 
@@ -1168,9 +1199,18 @@ function doPost(e) {
                                   <td className="px-4 py-3 font-mono">{c.phone}</td>
                                   <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
                                   <td className="px-4 py-3">
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                                      {c.active || "Active"}
-                                    </span>
+                                    {(() => {
+                                      const isInactive = c.active === "Not" || inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name);
+                                      return isInactive ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">
+                                          Inactive
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                          {c.active || "Active"}
+                                        </span>
+                                      );
+                                    })()}
                                   </td>
                                   <td className="px-4 py-3 font-semibold text-blue-600">
                                     {c.amcPrice ? `₹${parseFloat(c.amcPrice.replace(/[^0-9]/g, "") || "0").toLocaleString("en-IN")}` : "—"}
@@ -1185,14 +1225,51 @@ function doPost(e) {
                                       >
                                         ✏️
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => markCustomerInactive(c)}
-                                        title="Move to Inactive"
-                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 transition cursor-pointer text-xs animate-none"
-                                      >
-                                        💤
-                                      </button>
+                                      {(() => {
+                                        const inactiveDoc = inactiveCustomers.find((ic) => ic.phone === c.phone && ic.name === c.name);
+                                        const isInactive = c.active === "Not" || !!inactiveDoc;
+                                        return isInactive ? (
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              if (inactiveDoc?.id) {
+                                                await markCustomerActive(inactiveDoc.id);
+                                              } else if (c.rowNum) {
+                                                setSheetLoading(true);
+                                                try {
+                                                  await editCustomerInSheet(c.rowNum, {
+                                                    name: c.name,
+                                                    address: c.address,
+                                                    phone: c.phone,
+                                                    amcMonth: c.amcMonth || "",
+                                                    amcPrice: c.amcPrice || "",
+                                                    active: "Active",
+                                                  });
+                                                  await fetchSheet();
+                                                } catch (err) {
+                                                  console.error("Error activating customer:", err);
+                                                  alert("Failed to activate customer.");
+                                                } finally {
+                                                  setSheetLoading(false);
+                                                }
+                                              }
+                                            }}
+                                            title="Move to Active"
+                                            className="w-8 h-8 flex items-center justify-center rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer text-xs animate-none"
+                                          >
+                                            ✅
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => markCustomerInactive(c)}
+                                            title="Move to Inactive"
+                                            className="w-8 h-8 flex items-center justify-center rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 transition cursor-pointer text-xs animate-none"
+                                          >
+                                            💤
+                                          </button>
+                                        );
+                                      })()}
                                     </div>
                                   </td>
                                 </tr>
