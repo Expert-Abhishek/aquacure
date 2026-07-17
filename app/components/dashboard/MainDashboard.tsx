@@ -17,6 +17,7 @@ import {
 import { db } from "@/lib/firebase";
 import TaskBoard from "./TaskBoard";
 import QueryCenter from "./QueryCenter";
+import PaymentBoard from "./PaymentBoard";
 import { Input } from "./ui";
 import {
   ADMIN_USER,
@@ -31,7 +32,7 @@ import {
 } from "./types";
 
 interface MainDashboardProps {
-  initialMenu?: "task" | "query" | "bills";
+  initialMenu?: "task" | "query" | "bills" | "payment";
 }
 
 function normalizeSheetId(value: string): string {
@@ -169,6 +170,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [custFormSuccess, setCustFormSuccess] = useState("");
 
   const [tab, setTab] = useState<"tasks" | "import" | "inactive">("tasks");
+  const [paymentTab, setPaymentTab] = useState<"inactive" | "cashmemo" | "ropayment">("inactive");
   const [inactiveCustomers, setInactiveCustomers] = useState<Customer[]>([]);
   const [inactiveSearch, setInactiveSearch] = useState("");
   const [inactivePage, setInactivePage] = useState(1);
@@ -176,13 +178,14 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [pageSize, setPageSize] = useState(10);
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "bills">(initialMenu || "task");
+  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "bills" | "payment">(initialMenu || "task");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const sidebarItems = [
     { key: "task" as const, label: "Task", description: "Active complaints and work queue" },
     { key: "query" as const, label: "Query", description: "Customer follow-ups and admin queries" },
     { key: "bills" as const, label: "Bills", description: "Billing and invoice tracking" },
+    { key: "payment" as const, label: "Payment", description: "Pending Cash Memo, RO Payment, and Inactive customers" },
   ];
 
   useEffect(() => {
@@ -1001,7 +1004,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           {activeMenu === "task" && (
             <div className="space-y-6">
               <div className="flex gap-2">
-                {([['tasks','Tasks'], ['import','Sheet Import'], ['inactive', 'Inactive']] as const).map(([value, label]) => (
+                {([['tasks','Tasks'], ['import','Sheet Import']] as const).map(([value, label]) => (
                   <button key={value} type="button" onClick={() => setTab(value)} className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${tab === value ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
                     {label}
                   </button>
@@ -1323,7 +1326,113 @@ function doPost(e) {
                 </div>
               )}
 
-              {tab === "inactive" && (
+
+              {tab === "tasks" && (
+                <TaskBoard
+                  tasks={tasks}
+                  firestoreLoading={firestoreLoading}
+                  sheetCustomers={sheetCustomers}
+                  search={search}
+                  taskName={taskName}
+                  taskAddress={taskAddress}
+                  taskPhone={taskPhone}
+                  taskComment={taskComment}
+                  taskAmcMonth={taskAmcMonth}
+                  taskAmcPrice={taskAmcPrice}
+                  taskSharePhone={taskSharePhone}
+                  taskType={taskType}
+                  taskTech={taskTech}
+                  taskError={taskError}
+                  searchResults={searchResults}
+                  pageSize={pageSize}
+                  filterStatus={filterStatus}
+                  page={page}
+                  totalPages={totalPages}
+                  filteredTasks={filteredTasks}
+                  pageTasks={pageTasks}
+                  onSearchChange={setSearch}
+                  onTaskNameChange={setTaskName}
+                  onTaskAddressChange={setTaskAddress}
+                  onTaskPhoneChange={setTaskPhone}
+                  onTaskCommentChange={setTaskComment}
+                  onTaskAmcMonthChange={setTaskAmcMonth}
+                  onTaskAmcPriceChange={setTaskAmcPrice}
+                  onTaskSharePhoneChange={setTaskSharePhone}
+                  onTaskTypeChange={setTaskType}
+                  onTaskTechChange={setTaskTech}
+                  onAddTask={addTask}
+                  onSaveTask={saveTask}
+                  onCancelEditTask={cancelTaskEdit}
+                  onEditTask={startTaskEdit}
+                  onEditTaskNameChange={onEditTaskNameChange}
+                  onEditTaskAddressChange={onEditTaskAddressChange}
+                  onEditTaskPhoneChange={onEditTaskPhoneChange}
+                  onEditTaskCommentChange={onEditTaskCommentChange}
+                  onEditTaskAmcMonthChange={onEditTaskAmcMonthChange}
+                  onEditTaskAmcPriceChange={onEditTaskAmcPriceChange}
+                  onEditTaskTypeChange={onEditTaskTypeChange}
+                  onEditTaskTechChange={onEditTaskTechChange}
+                  onEditTaskSharePhoneChange={onEditTaskSharePhoneChange}
+                  onFillFromCustomer={fillFromCustomer}
+                  editingTask={editingTask}
+                  onSendTask={resendTask}
+                  onFilterStatusChange={setFilterStatus}
+                  onPageSizeChange={setPageSize}
+                  onPageChange={setPage}
+                  onDeleteTask={deleteTask}
+                  selectedTaskIds={selectedTaskIds}
+                  onToggleTaskSelection={toggleTaskSelection}
+                  onToggleSelectAll={toggleSelectAll}
+                  onDeleteSelectedTasks={deleteSelectedTasks}
+                />
+              )}
+            </div>
+          )}
+
+          {activeMenu === "query" && (
+            <QueryCenter
+              querySearch={querySearch}
+              queryName={queryName}
+              queryPhone={queryPhone}
+              queryAddress={queryAddress}
+              queryComment={queryComment}
+              searchResults={querySearchResults}
+              queries={queries}
+              onQuerySearchChange={setQuerySearch}
+              onQueryNameChange={setQueryName}
+              onQueryPhoneChange={setQueryPhone}
+              onQueryAddressChange={setQueryAddress}
+              onQueryCommentChange={setQueryComment}
+              onFillFromCustomer={fillQueryFromCustomer}
+              onSubmitQuery={submitQuery}
+              onDeleteQuery={deleteQuery}
+              queryError={queryError}
+            />
+          )}
+
+          {activeMenu === "bills" && (
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-semibold">Bills Center</h2>
+              <p className="mt-2 text-sm text-slate-500">Billing and invoice tracking will appear here.</p>
+            </section>
+          )}
+
+          {activeMenu === "payment" && (
+            <div className="space-y-6">
+              <div className="flex gap-2 border-b border-slate-100 pb-4">
+                {([['inactive', 'Inactive Customers'], ['cashmemo', 'Pending Cash Memo'], ['ropayment', 'Pending RO Payment']] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setPaymentTab(value)}
+                    className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${paymentTab === value ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {paymentTab === "inactive" && (
                 <div className="space-y-6">
                   <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4">
@@ -1423,6 +1532,7 @@ function doPost(e) {
                                         onClick={() => {
                                           fillFromCustomer(c);
                                           setTab("tasks");
+                                          setActiveMenu("task");
                                         }}
                                         title="Create Task"
                                         className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-50 text-purple-600 hover:bg-purple-100 transition cursor-pointer text-xs animate-none"
@@ -1485,94 +1595,24 @@ function doPost(e) {
                 </div>
               )}
 
-              {tab === "tasks" && (
-                <TaskBoard
-                  tasks={tasks}
-                  firestoreLoading={firestoreLoading}
+              {paymentTab === "cashmemo" && (
+                <PaymentBoard
+                  collectionName="cash_memos"
+                  title="Pending Cash Memo Center"
+                  description="Add, search, edit and track pending cash memos."
                   sheetCustomers={sheetCustomers}
-                  search={search}
-                  taskName={taskName}
-                  taskAddress={taskAddress}
-                  taskPhone={taskPhone}
-                  taskComment={taskComment}
-                  taskAmcMonth={taskAmcMonth}
-                  taskAmcPrice={taskAmcPrice}
-                  taskSharePhone={taskSharePhone}
-                  taskType={taskType}
-                  taskTech={taskTech}
-                  taskError={taskError}
-                  searchResults={searchResults}
-                  pageSize={pageSize}
-                  filterStatus={filterStatus}
-                  page={page}
-                  totalPages={totalPages}
-                  filteredTasks={filteredTasks}
-                  pageTasks={pageTasks}
-                  onSearchChange={setSearch}
-                  onTaskNameChange={setTaskName}
-                  onTaskAddressChange={setTaskAddress}
-                  onTaskPhoneChange={setTaskPhone}
-                  onTaskCommentChange={setTaskComment}
-                  onTaskAmcMonthChange={setTaskAmcMonth}
-                  onTaskAmcPriceChange={setTaskAmcPrice}
-                  onTaskSharePhoneChange={setTaskSharePhone}
-                  onTaskTypeChange={setTaskType}
-                  onTaskTechChange={setTaskTech}
-                  onAddTask={addTask}
-                  onSaveTask={saveTask}
-                  onCancelEditTask={cancelTaskEdit}
-                  onEditTask={startTaskEdit}
-                  onEditTaskNameChange={onEditTaskNameChange}
-                  onEditTaskAddressChange={onEditTaskAddressChange}
-                  onEditTaskPhoneChange={onEditTaskPhoneChange}
-                  onEditTaskCommentChange={onEditTaskCommentChange}
-                  onEditTaskAmcMonthChange={onEditTaskAmcMonthChange}
-                  onEditTaskAmcPriceChange={onEditTaskAmcPriceChange}
-                  onEditTaskTypeChange={onEditTaskTypeChange}
-                  onEditTaskTechChange={onEditTaskTechChange}
-                  onEditTaskSharePhoneChange={onEditTaskSharePhoneChange}
-                  onFillFromCustomer={fillFromCustomer}
-                  editingTask={editingTask}
-                  onSendTask={resendTask}
-                  onFilterStatusChange={setFilterStatus}
-                  onPageSizeChange={setPageSize}
-                  onPageChange={setPage}
-                  onDeleteTask={deleteTask}
-                  selectedTaskIds={selectedTaskIds}
-                  onToggleTaskSelection={toggleTaskSelection}
-                  onToggleSelectAll={toggleSelectAll}
-                  onDeleteSelectedTasks={deleteSelectedTasks}
+                />
+              )}
+
+              {paymentTab === "ropayment" && (
+                <PaymentBoard
+                  collectionName="ro_payments"
+                  title="Pending RO Payment Center"
+                  description="Add, search, edit and track pending RO purifier payments."
+                  sheetCustomers={sheetCustomers}
                 />
               )}
             </div>
-          )}
-
-          {activeMenu === "query" && (
-            <QueryCenter
-              querySearch={querySearch}
-              queryName={queryName}
-              queryPhone={queryPhone}
-              queryAddress={queryAddress}
-              queryComment={queryComment}
-              searchResults={querySearchResults}
-              queries={queries}
-              onQuerySearchChange={setQuerySearch}
-              onQueryNameChange={setQueryName}
-              onQueryPhoneChange={setQueryPhone}
-              onQueryAddressChange={setQueryAddress}
-              onQueryCommentChange={setQueryComment}
-              onFillFromCustomer={fillQueryFromCustomer}
-              onSubmitQuery={submitQuery}
-              onDeleteQuery={deleteQuery}
-              queryError={queryError}
-            />
-          )}
-
-          {activeMenu === "bills" && (
-            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold">Bills Center</h2>
-              <p className="mt-2 text-sm text-slate-500">Billing and invoice tracking will appear here.</p>
-            </section>
           )}
 
 
