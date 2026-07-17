@@ -64,6 +64,7 @@ function parseSheetValues(values: string[][], sheetId: string): (Omit<Customer, 
         phone: map["telephone"] || map["mobile"] || map["contact"] || map["phone"] || "",
         amcMonth: map["month of new amc"] || map["month"] || map["amc"] || "",
         amcPrice: map["2026"] || map["price of amc"] || map["amc price"] || "",
+        active: map["active"] || map["status"] || "Active",
         _sheetId: sheetId,
         rowNum: i + 1, // Row 1 is header, data starts at Row 2 (index 1)
       });
@@ -161,6 +162,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [custFormPhone, setCustFormPhone] = useState("");
   const [custFormAmcMonth, setCustFormAmcMonth] = useState("");
   const [custFormAmcPrice, setCustFormAmcPrice] = useState("");
+  const [custFormActive, setCustFormActive] = useState("Active");
 
   const [custFormLoading, setCustFormLoading] = useState(false);
   const [custFormError, setCustFormError] = useState("");
@@ -236,6 +238,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             phone: docSnapshot.data().phone ?? "",
             amcMonth: docSnapshot.data().amcMonth ?? "",
             amcPrice: docSnapshot.data().amcPrice ?? "",
+            active: docSnapshot.data().active ?? "",
             rowNum: docSnapshot.data().rowNum ?? undefined,
           })),
         ),
@@ -329,9 +332,9 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   }, [querySearch, sheetCustomers]);
 
   const filteredSheetCustomers = useMemo(() => {
-    // Filter out manually marked inactive customers
+    // Filter out manually marked inactive customers AND sheet customers marked as 'Not' active
     const activeCustomers = sheetCustomers.filter(
-      (c) => !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name)
+      (c) => c.active !== "Not" && !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name)
     );
     if (!sheetSearch.trim()) return activeCustomers;
     const queryStr = sheetSearch.toLowerCase();
@@ -360,16 +363,26 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
       type: "inactive" as const,
     }));
 
-    // 2. Sheet customers with "balance" in their price
+    // 2. Sheet customers with active === "Not"
+    const notActiveSheet = sheetCustomers
+      .filter((c) => c.active === "Not")
+      .filter((c) => !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name))
+      .map((c) => ({
+        ...c,
+        type: "inactive" as const,
+      }));
+
+    // 3. Sheet customers with "balance" in their price
     const balance = sheetCustomers
       .filter((c) => c.amcPrice?.toLowerCase().includes("balance"))
+      .filter((c) => c.active !== "Not") // If they are marked 'Not', they are handled as inactive above
       .filter((c) => !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name))
       .map((c) => ({
         ...c,
         type: "balance" as const,
       }));
 
-    return [...manual, ...balance];
+    return [...manual, ...notActiveSheet, ...balance];
   }, [inactiveCustomers, sheetCustomers]);
 
   const filteredInactiveCustomers = useMemo(() => {
@@ -432,6 +445,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: docSnapshot.data().phone ?? "",
           amcMonth: docSnapshot.data().amcMonth ?? "",
           amcPrice: docSnapshot.data().amcPrice ?? "",
+          active: docSnapshot.data().active ?? "",
           rowNum: docSnapshot.data().rowNum ?? undefined,
         })),
       );
@@ -458,7 +472,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setQuerySearch("");
   };
 
-  const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string }) => {
+  const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; active: string }) => {
     if (!sheetScriptUrl.trim()) {
       throw new Error("Google Apps Script Web App URL is not configured. Please set it in the settings panel below.");
     }
@@ -473,6 +487,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         phone: customer.phone,
         amcMonth: customer.amcMonth,
         amcPrice: customer.amcPrice,
+        active: customer.active,
       }),
     });
 
@@ -482,7 +497,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     }
   };
 
-  const editCustomerInSheet = async (rowNum: number, customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string }) => {
+  const editCustomerInSheet = async (rowNum: number, customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; active: string }) => {
     if (!sheetScriptUrl.trim()) {
       throw new Error("Google Apps Script Web App URL is not configured. Please set it in the settings panel below.");
     }
@@ -498,6 +513,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         phone: customer.phone,
         amcMonth: customer.amcMonth,
         amcPrice: customer.amcPrice,
+        active: customer.active,
       }),
     });
 
@@ -515,6 +531,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setCustFormPhone("");
     setCustFormAmcMonth("");
     setCustFormAmcPrice("");
+    setCustFormActive("Active");
     setCustFormError("");
     setCustFormSuccess("");
     setShowCustomerModal(true);
@@ -528,6 +545,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setCustFormPhone(customer.phone);
     setCustFormAmcMonth(customer.amcMonth);
     setCustFormAmcPrice(customer.amcPrice);
+    setCustFormActive(customer.active || "Active");
     setCustFormError("");
     setCustFormSuccess("");
     setShowCustomerModal(true);
@@ -560,6 +578,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: custFormPhone.trim(),
           amcMonth: custFormAmcMonth.trim(),
           amcPrice: custFormAmcPrice.trim(),
+          active: custFormActive,
         });
         setCustFormSuccess("Customer successfully added to Google Sheet!");
       } else {
@@ -570,6 +589,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: custFormPhone.trim(),
           amcMonth: custFormAmcMonth.trim(),
           amcPrice: custFormAmcPrice.trim(),
+          active: custFormActive,
         });
         setCustFormSuccess("Customer successfully updated in Google Sheet!");
       }
@@ -1044,6 +1064,7 @@ function doPost(e) {
   var phoneCol = colMap["telephone"] || colMap["mobile"] || colMap["contact"] || colMap["phone"] || 3;
   var monthCol = colMap["month of new amc"] || colMap["month"] || colMap["amc"] || 4;
   var priceCol = colMap["2026"] || colMap["price of amc"] || colMap["amc price"] || 5;
+  var activeCol = colMap["active"] || colMap["status"] || 6;
 
   if (data.action === "add") {
     var nextRow = sheet.getLastRow() + 1;
@@ -1052,6 +1073,7 @@ function doPost(e) {
     sheet.getRange(nextRow, phoneCol).setValue(data.phone || "");
     sheet.getRange(nextRow, monthCol).setValue(data.amcMonth || "");
     sheet.getRange(nextRow, priceCol).setValue(data.amcPrice || "");
+    sheet.getRange(nextRow, activeCol).setValue(data.active || "Active");
     return ContentService.createTextOutput(JSON.stringify({ success: true, rowNum: nextRow }))
       .setMimeType(ContentService.MimeType.JSON);
   } else if (data.action === "edit") {
@@ -1065,6 +1087,7 @@ function doPost(e) {
     if (data.phone !== undefined) sheet.getRange(rowNum, phoneCol).setValue(data.phone);
     if (data.amcMonth !== undefined) sheet.getRange(rowNum, monthCol).setValue(data.amcMonth);
     if (data.amcPrice !== undefined) sheet.getRange(rowNum, priceCol).setValue(data.amcPrice);
+    if (data.active !== undefined) sheet.getRange(rowNum, activeCol).setValue(data.active);
     return ContentService.createTextOutput(JSON.stringify({ success: true }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -1130,59 +1153,69 @@ function doPost(e) {
 
                     {/* Directory Table */}
                     <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                      <table className="w-full border-collapse text-left text-xs text-slate-500">
-                        <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
-                          <tr>
-                            <th className="px-4 py-3">Row</th>
-                            <th className="px-4 py-3">Customer Name</th>
-                            <th className="px-4 py-3">Address</th>
-                            <th className="px-4 py-3">Phone</th>
-                            <th className="px-4 py-3">AMC Month</th>
-                            <th className="px-4 py-3">Price</th>
-                            <th className="px-4 py-3 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {pageSheetCustomers.length > 0 ? (
-                            pageSheetCustomers.map((c) => (
-                              <tr key={c.id} className="hover:bg-slate-50/50 transition">
-                                <td className="px-4 py-3 text-slate-400 font-mono">#{c.rowNum ?? "?"}</td>
-                                <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
-                                <td className="px-4 py-3 max-w-[200px] truncate" title={c.address}>{c.address}</td>
-                                <td className="px-4 py-3 font-mono">{c.phone}</td>
-                                <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
-                                <td className="px-4 py-3 font-semibold text-blue-600">
-                                  {c.amcPrice ? `₹${parseFloat(c.amcPrice.replace(/[^0-9]/g, "") || "0").toLocaleString("en-IN")}` : "—"}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  <div className="flex justify-end gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenEditCustomer(c)}
-                                      className="rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-600 hover:bg-blue-100 transition cursor-pointer"
-                                    >
-                                      Edit Details
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => markCustomerInactive(c)}
-                                      className="rounded-lg bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-600 hover:bg-amber-100 transition cursor-pointer"
-                                    >
-                                      Move to Inactive
-                                    </button>
-                                  </div>
+                      <div className="w-full overflow-x-auto scrollbar-thin">
+                        <table className="w-full border-collapse text-left text-xs text-slate-500 min-w-[800px]">
+                          <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
+                            <tr>
+                              <th className="px-4 py-3">Row</th>
+                              <th className="px-4 py-3">Customer Name</th>
+                              <th className="px-4 py-3">Address</th>
+                              <th className="px-4 py-3">Phone</th>
+                              <th className="px-4 py-3">AMC Month</th>
+                              <th className="px-4 py-3">Active</th>
+                              <th className="px-4 py-3">Price</th>
+                              <th className="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {pageSheetCustomers.length > 0 ? (
+                              pageSheetCustomers.map((c) => (
+                                <tr key={c.id} className="hover:bg-slate-50/50 transition">
+                                  <td className="px-4 py-3 text-slate-400 font-mono">#{c.rowNum ?? "?"}</td>
+                                  <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
+                                  <td className="px-4 py-3 max-w-[200px] truncate" title={c.address}>{c.address}</td>
+                                  <td className="px-4 py-3 font-mono">{c.phone}</td>
+                                  <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
+                                  <td className="px-4 py-3">
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                      {c.active || "Active"}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-blue-600">
+                                    {c.amcPrice ? `₹${parseFloat(c.amcPrice.replace(/[^0-9]/g, "") || "0").toLocaleString("en-IN")}` : "—"}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenEditCustomer(c)}
+                                        title="Edit Details"
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition cursor-pointer text-xs animate-none"
+                                      >
+                                        ✏️
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => markCustomerInactive(c)}
+                                        title="Move to Inactive"
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 transition cursor-pointer text-xs animate-none"
+                                      >
+                                        💤
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={8} className="text-center py-8 text-slate-400">
+                                  No customer records found.
                                 </td>
                               </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={7} className="text-center py-8 text-slate-400">
-                                No customer records found.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
 
                     {/* Pagination Controls */}
@@ -1247,91 +1280,104 @@ function doPost(e) {
 
                     {/* Directory Table */}
                     <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                      <table className="w-full border-collapse text-left text-xs text-slate-500">
-                        <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
-                          <tr>
-                            <th className="px-4 py-3">Customer Name</th>
-                            <th className="px-4 py-3">Address</th>
-                            <th className="px-4 py-3">Phone</th>
-                            <th className="px-4 py-3">AMC Month</th>
-                            <th className="px-4 py-3">Status</th>
-                            <th className="px-4 py-3">Price / Balance</th>
-                            <th className="px-4 py-3 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {pageInactiveCustomers.length > 0 ? (
-                            pageInactiveCustomers.map((c) => (
-                              <tr key={c.id} className="hover:bg-slate-50/50 transition">
-                                <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
-                                <td className="px-4 py-3 max-w-[200px] truncate" title={c.address}>{c.address}</td>
-                                <td className="px-4 py-3 font-mono">{c.phone}</td>
-                                <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
-                                <td className="px-4 py-3">
-                                  {c.type === "inactive" ? (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                                      💤 Inactive
+                      <div className="w-full overflow-x-auto scrollbar-thin">
+                        <table className="w-full border-collapse text-left text-xs text-slate-500 min-w-[800px]">
+                          <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
+                            <tr>
+                              <th className="px-4 py-3">Customer Name</th>
+                              <th className="px-4 py-3">Address</th>
+                              <th className="px-4 py-3">Phone</th>
+                              <th className="px-4 py-3">AMC Month</th>
+                              <th className="px-4 py-3">Active</th>
+                              <th className="px-4 py-3">Status</th>
+                              <th className="px-4 py-3">Price / Balance</th>
+                              <th className="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {pageInactiveCustomers.length > 0 ? (
+                              pageInactiveCustomers.map((c) => (
+                                <tr key={c.id} className="hover:bg-slate-50/50 transition">
+                                  <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
+                                  <td className="px-4 py-3 max-w-[200px] truncate" title={c.address}>{c.address}</td>
+                                  <td className="px-4 py-3 font-mono">{c.phone}</td>
+                                  <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
+                                  <td className="px-4 py-3">
+                                    {c.active === "Not" ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">
+                                        Not
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                        Active
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                      ⚠️ Due
                                     </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                                      💵 Balance Due
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3 font-semibold text-blue-600">
-                                  {c.amcPrice || "—"}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  <div className="flex justify-end gap-1.5">
-                                    <a
-                                      href={`tel:${c.phone}`}
-                                      className="rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-600 hover:bg-blue-100 transition cursor-pointer"
-                                    >
-                                      📞 Call
-                                    </a>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const cleanPhone = c.phone.replace(/[^0-9]/g, "");
-                                        const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-                                        window.open(`https://wa.me/${formattedPhone}`, "_blank");
-                                      }}
-                                      className="rounded-lg bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 hover:bg-emerald-100 transition cursor-pointer"
-                                    >
-                                      💬 WhatsApp
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        fillFromCustomer(c);
-                                        setTab("tasks");
-                                      }}
-                                      className="rounded-lg bg-purple-50 px-2.5 py-1 text-[10px] font-semibold text-purple-600 hover:bg-purple-100 transition cursor-pointer"
-                                    >
-                                      ⚙️ Create Task
-                                    </button>
-                                    {c.type === "inactive" && (
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-blue-600">
+                                    {c.amcPrice || "—"}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex justify-end gap-2">
+                                      <a
+                                        href={`tel:${c.phone}`}
+                                        title="Call Customer"
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition cursor-pointer text-xs"
+                                      >
+                                        📞
+                                      </a>
                                       <button
                                         type="button"
-                                        onClick={() => markCustomerActive(c.id)}
-                                        className="rounded-lg bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-600 hover:bg-amber-100 transition cursor-pointer"
+                                        onClick={() => {
+                                          const cleanPhone = c.phone.replace(/[^0-9]/g, "");
+                                          const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+                                          const msg = `Hello *${c.name}*,\n\nThis is a gentle reminder from *Aquatech Services*.\n\nYour RO system AMC is due for the period: *${c.amcMonth || "N/A"}*.\nTotal amount due: *${c.amcPrice || "N/A"}*.\n\nPlease let us know a convenient time to schedule the service visit.\n\nThank you,\n*Aquatech Services*`;
+                                          window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+                                        }}
+                                        title="WhatsApp Message"
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer text-xs animate-none"
                                       >
-                                        🔄 Activate
+                                        💬
                                       </button>
-                                    )}
-                                  </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          fillFromCustomer(c);
+                                          setTab("tasks");
+                                        }}
+                                        title="Create Task"
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-50 text-purple-600 hover:bg-purple-100 transition cursor-pointer text-xs animate-none"
+                                      >
+                                        ⚙️
+                                      </button>
+                                      {c.type === "inactive" && c.active !== "Not" && (
+                                        <button
+                                          type="button"
+                                          onClick={() => markCustomerActive(c.id)}
+                                          title="Move back to Directory"
+                                          className="w-8 h-8 flex items-center justify-center rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 transition cursor-pointer text-xs animate-none"
+                                        >
+                                          🔄
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={8} className="text-center py-8 text-slate-400">
+                                  No inactive or balance records found.
                                 </td>
                               </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={7} className="text-center py-8 text-slate-400">
-                                No inactive or balance records found.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
 
                     {/* Pagination Controls */}
@@ -1504,6 +1550,17 @@ function doPost(e) {
                     onChange={setCustFormAmcPrice}
                     placeholder="e.g. 4500"
                   />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-700">Active Status</label>
+                  <select
+                    value={custFormActive}
+                    onChange={(e) => setCustFormActive(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs outline-none focus:border-slate-400 font-medium text-slate-700"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Not">Not</option>
+                  </select>
                 </div>
 
                 {custFormError && (
