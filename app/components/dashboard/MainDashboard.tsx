@@ -105,6 +105,7 @@ function saveSetting(key: string, value: string): void {
 
 const SHEET_API_KEY = "AIzaSyAREcjS2RERBjhcMiN_SF2hIgMmjZ0H9Cw";
 const SHEET_ID_CONST = "16Pq3hviILIce3ZQ9iMui2QjZgQ4-JAA-itRAKHu4YC8";
+const SHEET_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbylUbVur6v7dG0CwqKml5C-fuMXleARs35I6UILfHAgW17CsdrfbbsuNSAbEaF8SFjT/exec";
 const SHEET_RANGE = "customer";
 
 export default function MainDashboard({ initialMenu = "task" }: MainDashboardProps) {
@@ -119,7 +120,6 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   // Configurable spreadsheet states
   const [sheetId, setSheetId] = useState(loadSetting("sheetId", SHEET_ID_CONST));
   const [sheetApiKey, setSheetApiKey] = useState(loadSetting("sheetApiKey", SHEET_API_KEY));
-  const [sheetScriptUrl, setSheetScriptUrl] = useState(loadSetting("sheetScriptUrl", ""));
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sheetCustomers, setSheetCustomers] = useState<Customer[]>([]);
@@ -473,11 +473,11 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   };
 
   const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; active: string }) => {
-    if (!sheetScriptUrl.trim()) {
-      throw new Error("Google Apps Script Web App URL is not configured. Please set it in the settings panel below.");
+    if (!SHEET_SCRIPT_URL.trim()) {
+      throw new Error("Google Apps Script Web App URL is not configured.");
     }
 
-    const res = await fetch(sheetScriptUrl, {
+    const res = await fetch(SHEET_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({
@@ -498,11 +498,11 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   };
 
   const editCustomerInSheet = async (rowNum: number, customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; active: string }) => {
-    if (!sheetScriptUrl.trim()) {
-      throw new Error("Google Apps Script Web App URL is not configured. Please set it in the settings panel below.");
+    if (!SHEET_SCRIPT_URL.trim()) {
+      throw new Error("Google Apps Script Web App URL is not configured.");
     }
 
-    const res = await fetch(sheetScriptUrl, {
+    const res = await fetch(SHEET_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({
@@ -1011,15 +1011,6 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
                           placeholder="API Key"
                         />
                       </div>
-                      <Input
-                        label="Google Apps Script Web App URL (For Add/Edit Writes)"
-                        value={sheetScriptUrl}
-                        onChange={(v) => {
-                          setSheetScriptUrl(v);
-                          saveSetting("sheetScriptUrl", v);
-                        }}
-                        placeholder="https://script.google.com/macros/s/.../exec"
-                      />
 
                       {/* Setup Instructions Card */}
                       <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 mt-4">
@@ -1034,7 +1025,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
                           <li>Delete any template code and paste the custom integration code (provided below).</li>
                           <li>Click <strong>Deploy &rarr; New Deployment</strong>, select <strong>Web App</strong>.</li>
                           <li>Set <strong>Execute as:</strong> <code>Me</code>, and <strong>Who has access:</strong> <code>Anyone</code>.</li>
-                          <li>Deploy, authorize permissions, copy the Web App URL, and paste it into the field above.</li>
+                          <li>Deploy and authorize permissions.</li>
                         </ol>
 
                         <details className="mt-4 rounded-xl border border-blue-200 bg-white p-3 [&_summary::-webkit-details-marker]:hidden">
