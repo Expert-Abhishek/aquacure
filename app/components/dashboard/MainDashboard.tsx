@@ -18,6 +18,7 @@ import { db } from "@/lib/firebase";
 import TaskBoard from "./TaskBoard";
 import QueryCenter from "./QueryCenter";
 import PaymentBoard from "./PaymentBoard";
+import BillCenter from "./BillCenter";
 import { Input } from "./ui";
 import {
   ADMIN_USER,
@@ -1411,10 +1412,7 @@ function doPost(e) {
           )}
 
           {activeMenu === "bills" && (
-            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold">Bills Center</h2>
-              <p className="mt-2 text-sm text-slate-500">Billing and invoice tracking will appear here.</p>
-            </section>
+            <BillCenter sheetCustomers={sheetCustomers} />
           )}
 
           {activeMenu === "payment" && (
