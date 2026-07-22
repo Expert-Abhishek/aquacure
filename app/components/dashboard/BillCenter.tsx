@@ -11,6 +11,7 @@ interface BillItem {
   billNumber: string;
   date: string;
   name: string;
+  phone: string;
   address1: string;
   address2: string;
   roName: string;
@@ -19,6 +20,7 @@ interface BillItem {
   rateInWords: string;
   startDate: string;
   endDate: string;
+  pdfUrl?: string;
   createdAt?: any;
 }
 
@@ -85,6 +87,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
   const [searchResults, setSearchResults] = useState<Customer[]>([]);
   
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [address1, setAddress1] = useState("");
   const [address2, setAddress2] = useState("");
   
@@ -95,6 +98,9 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
   
   const [startDate, setStartDate] = useState(formatDate(today));
   const [endDate, setEndDate] = useState(formatDate(nextYear));
+
+  // Generated PDF link from Google Docs Sync
+  const [syncedPdfUrl, setSyncedPdfUrl] = useState("");
 
   // Letterhead Spacing
   const [useLetterhead, setUseLetterhead] = useState(true);
@@ -165,7 +171,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
 
   const handleFillCustomer = (c: Customer) => {
     setName(c.name);
-    // Split address if comma exists or fit into Address1 & Address2
+    setPhone(c.phone || "");
     const parts = c.address.split(",");
     if (parts.length > 1) {
       setAddress1(parts[0].trim());
@@ -192,6 +198,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
     billNumber,
     date,
     name,
+    phone,
     address1,
     address2,
     roName,
@@ -200,6 +207,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
     rateInWords,
     startDate,
     endDate,
+    pdfUrl: syncedPdfUrl,
   };
 
   // Save to Firebase Firestore
@@ -215,7 +223,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
         ...currentBillData,
         createdAt: serverTimestamp(),
       });
-      setStatusMsg({ text: "Bill saved successfully!", isError: false });
+      setStatusMsg({ text: "Bill saved successfully to records!", isError: false });
       setSavedBills((prev) => [{ id: docRef.id, ...currentBillData }, ...prev]);
     } catch (e: any) {
       setStatusMsg({ text: e.message || "Failed to save bill", isError: true });
@@ -234,7 +242,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
       return;
     }
     setSyncingDoc(true);
-    setStatusMsg({ text: "Syncing to Google Docs...", isError: false });
+    setStatusMsg({ text: "Syncing to Google Docs & generating PDF...", isError: false });
 
     try {
       const response = await fetch(webhookUrl.trim(), {
@@ -245,6 +253,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
           bill_number: billNumber,
           date: date,
           name: name,
+          phone: phone,
           address1: address1,
           address2: address2,
           ro_name: roName,
@@ -258,8 +267,11 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
 
       const result = await response.json();
       if (result.status === "success") {
+        if (result.pdfUrl) {
+          setSyncedPdfUrl(result.pdfUrl);
+        }
         setStatusMsg({
-          text: `Success! Created in Google Docs & saved to Bills folder. ${result.docUrl ? `Doc URL: ${result.docUrl}` : ""}`,
+          text: `Success! Bill PDF created in Google Drive & logged into Master Bills file. ${result.pdfUrl ? `PDF Link ready for WhatsApp!` : ""}`,
           isError: false,
         });
       } else {
@@ -271,12 +283,39 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
     } catch (e: any) {
       console.log("Webhook response error/cors note:", e);
       setStatusMsg({
-        text: "Sync request sent to Google Docs! (Note: Apps Script webhook runs asynchronously).",
+        text: "Sync request sent to Google Docs! Check your Drive Bills folder for the PDF.",
         isError: false,
       });
     } finally {
       setSyncingDoc(false);
     }
+  };
+
+  // Send PDF / Message to Customer via WhatsApp
+  const handleSendWhatsApp = (billObj?: BillItem) => {
+    const targetBill = billObj || currentBillData;
+    const cleanPhone = (targetBill.phone || phone).replace(/[^0-9]/g, "");
+    if (!cleanPhone) {
+      alert("Please enter Customer Mobile / WhatsApp Number first.");
+      return;
+    }
+    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    
+    let msg = `Hello *${targetBill.name}*,\n\n`;
+    msg += `Thank you for choosing *Aquatech Services*!\n\n`;
+    msg += `📋 *Bill No:* ${targetBill.billNumber}\n`;
+    msg += `📅 *Date:* ${targetBill.date}\n`;
+    msg += `💧 *RO System:* ${targetBill.roName} (${targetBill.roCapacity})\n`;
+    msg += `💰 *Amount Paid:* Rs. ${targetBill.rate} (${targetBill.rateInWords} Only)\n`;
+    msg += `🛡️ *Warranty Period:* ${targetBill.startDate} to ${targetBill.endDate} (1 Year Full Warranty)\n\n`;
+
+    if (targetBill.pdfUrl) {
+      msg += `📥 *Download Official Bill & Warranty PDF:* ${targetBill.pdfUrl}\n\n`;
+    }
+
+    msg += `For any support or query, feel free to contact us.\n*Aquatech Services*`;
+
+    window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
   const handleDeleteBill = async (id: string) => {
@@ -300,16 +339,19 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
   const googleScriptTemplateCode = `function doPost(e) {
   var data = JSON.parse(e.postData.contents);
   
-  // REPLACE WITH YOUR GOOGLE DOC TEMPLATE ID & BILLS FOLDER ID
-  var TEMPLATE_ID = "YOUR_GOOGLE_DOC_TEMPLATE_ID";
-  var FOLDER_ID = "YOUR_BILLS_FOLDER_ID";
+  // 1. REPLACE WITH YOUR IDS FROM GOOGLE DRIVE / DOCS
+  var TEMPLATE_DOC_ID = "YOUR_PRINT_TEMPLATE_DOC_ID"; // Bill printout template
+  var BILLS_FOLDER_ID = "YOUR_GOOGLE_DRIVE_BILLS_FOLDER_ID"; // Folder for output PDFs
+  var MASTER_LOG_DOC_ID = "YOUR_MASTER_BILLS_RECORD_DOC_OR_SHEET_ID"; // Ledger record doc/sheet
   
-  var templateFile = DriveApp.getFileById(TEMPLATE_ID);
-  var targetFolder = DriveApp.getFolderById(FOLDER_ID);
-  var newFileName = "Bill_" + (data.bill_number || "AQ") + "_" + (data.name || "Customer");
-  var newFile = templateFile.makeCopy(newFileName, targetFolder);
+  var templateFile = DriveApp.getFileById(TEMPLATE_DOC_ID);
+  var targetFolder = DriveApp.getFolderById(BILLS_FOLDER_ID);
   
-  var doc = DocumentApp.openById(newFile.getId());
+  // 2. Create copy of template for current printout
+  var newDocName = "Bill_" + (data.bill_number || "AQ") + "_" + (data.name || "Customer");
+  var newDoc = templateFile.makeCopy(newDocName, targetFolder);
+  
+  var doc = DocumentApp.openById(newDoc.getId());
   var body = doc.getBody();
   
   body.replaceText("\\[Bill_number\\]", data.bill_number || "");
@@ -326,9 +368,29 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
   
   doc.saveAndClose();
   
+  // 3. Convert to PDF file for WhatsApp sharing & record
+  var pdfBlob = newDoc.getAs("application/pdf");
+  var pdfFile = targetFolder.createFile(pdfBlob).setName(newDocName + ".pdf");
+  pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  
+  // 4. Log Entry into Master Bills Ledger Record Document
+  try {
+    var masterDoc = DocumentApp.openById(MASTER_LOG_DOC_ID);
+    var masterBody = masterDoc.getBody();
+    masterBody.appendParagraph(
+      "Bill No: " + data.bill_number + " | Date: " + data.date + 
+      " | Customer: " + data.name + " | Phone: " + (data.phone || "N/A") +
+      " | Amount: Rs. " + data.rate + " | PDF: " + pdfFile.getUrl()
+    );
+    masterDoc.saveAndClose();
+  } catch(err) {
+    Logger.log("Master record log error: " + err.toString());
+  }
+  
   return ContentService.createTextOutput(JSON.stringify({
     status: "success",
-    docUrl: newFile.getUrl()
+    docUrl: newDoc.getUrl(),
+    pdfUrl: pdfFile.getUrl()
   })).setMimeType(ContentService.MimeType.JSON);
 }`;
 
@@ -340,7 +402,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">Bill & Warranty Certificate Center</h1>
             <p className="mt-1 text-sm text-blue-200">
-              Generate Cash Memos & Guarantee Certificates formatted for pre-printed letterheads and Google Docs.
+              Generate 2-Page Bills & Guarantee Cards formatted for letterheads, PDF export & WhatsApp sharing.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -390,7 +452,10 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
                 <Input label="Date" value={date} onChange={setDate} placeholder="DD/MM/YYYY" />
               </div>
 
-              <Input label="Customer Name [Name]" value={name} onChange={setName} placeholder="e.g. Ramesh Sharma" />
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Customer Name [Name]" value={name} onChange={setName} placeholder="e.g. Ramesh Sharma" />
+                <Input label="Mobile / WhatsApp Phone" value={phone} onChange={setPhone} placeholder="e.g. 9876543210" />
+              </div>
               
               <div className="grid grid-cols-2 gap-4">
                 <Input label="Address Line 1 [Address1]" value={address1} onChange={setAddress1} placeholder="House No, Colony" />
@@ -424,10 +489,10 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
             <div className="space-y-4 pt-4">
               <div className="rounded-2xl bg-amber-50 border border-amber-200/70 p-4 space-y-3">
                 <Checkbox
-                  label="Pre-printed Letterhead Mode (2-Inch Header Space)"
+                  label="Pre-printed Letterhead Mode (2-Inch Header Space on Both Pages)"
                   checked={useLetterhead}
                   onChange={setUseLetterhead}
-                  description="Check this if printing on physical letterhead sheets with existing 2-inch company details at top."
+                  description="Leaves 2-inch top margin space on Page 1 (Bill) and Page 2 (Warranty Card) for letterhead paper."
                 />
                 {useLetterhead && (
                   <div className="flex items-center gap-3 pt-2">
@@ -452,36 +517,44 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
                   placeholder="https://script.google.com/macros/s/.../exec"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Webhook URL connects your app directly to your Google Docs template.
+                  Webhook generates PDF in Drive & appends record entry to your Master Bills Log file.
                 </p>
               </div>
             </div>
           </SectionCard>
 
           {/* Action Buttons */}
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => handlePrint()}
-              className="flex-1 rounded-2xl bg-blue-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg hover:bg-blue-500 transition cursor-pointer flex items-center justify-center gap-2"
+              className="rounded-2xl bg-blue-600 px-5 py-3.5 text-xs font-bold text-white shadow-lg hover:bg-blue-500 transition cursor-pointer flex items-center justify-center gap-2"
             >
-              🖨️ Print / Preview A4 Bill
+              🖨️ Print 2-Page A4 Sheet
             </button>
 
             <button
               type="button"
               onClick={handleSyncToGoogleDocs}
               disabled={syncingDoc}
-              className="flex-1 rounded-2xl bg-emerald-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg hover:bg-emerald-500 disabled:opacity-50 transition cursor-pointer flex items-center justify-center gap-2"
+              className="rounded-2xl bg-emerald-600 px-5 py-3.5 text-xs font-bold text-white shadow-lg hover:bg-emerald-500 disabled:opacity-50 transition cursor-pointer flex items-center justify-center gap-2"
             >
-              {syncingDoc ? "Syncing..." : "☁️ Sync to Google Docs"}
+              {syncingDoc ? "Syncing..." : "☁️ Sync & Create Drive PDF"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSendWhatsApp()}
+              className="rounded-2xl bg-emerald-500 px-5 py-3.5 text-xs font-bold text-white shadow-lg hover:bg-emerald-400 transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              💬 Share PDF on WhatsApp
             </button>
 
             <button
               type="button"
               onClick={handleSaveBill}
               disabled={loading}
-              className="rounded-2xl border border-slate-300 bg-slate-100 px-6 py-3.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition cursor-pointer"
+              className="rounded-2xl border border-slate-300 bg-slate-100 px-5 py-3.5 text-xs font-bold text-slate-700 hover:bg-slate-200 transition cursor-pointer flex items-center justify-center gap-2"
             >
               💾 Save Record
             </button>
@@ -496,22 +569,22 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
 
         {/* Live Bill Preview & Saved Bills Column */}
         <div className="lg:col-span-5 space-y-6">
-          <SectionCard title="Live Document Preview" description="Real-time preview of Bill and Warranty Certificate.">
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-inner">
-              <div className="rounded-xl border border-slate-300 bg-white p-5 shadow text-[11px] text-slate-800 space-y-4 font-serif">
-                {/* 2 Inch Letterhead space preview */}
+          <SectionCard title="Live 2-Page Preview" description="Page 1: Bill | Page 2: Warranty Card with Header Space.">
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-inner space-y-4">
+              {/* PAGE 1 PREVIEW */}
+              <div className="rounded-xl border border-slate-300 bg-white p-5 shadow text-[11px] text-slate-800 space-y-4 font-serif relative">
+                <div className="absolute top-2 right-2 text-[9px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">PAGE 1 - BILL</div>
                 {useLetterhead ? (
-                  <div className="rounded border-2 border-dashed border-amber-300 bg-amber-50/50 py-4 text-center text-[10px] font-bold text-amber-700">
-                    ⬆️ {letterheadMarginInches} Inch (~50mm) Space Reserved for Pre-Printed Letterhead Header
+                  <div className="rounded border-2 border-dashed border-amber-300 bg-amber-50/50 py-3 text-center text-[10px] font-bold text-amber-700">
+                    ⬆️ {letterheadMarginInches} Inch Margin Reserved for Page 1 Letterhead Header
                   </div>
                 ) : (
                   <div className="border-b-2 border-blue-900 pb-2 text-center font-sans">
                     <h2 className="text-sm font-black text-blue-950 uppercase tracking-wide">Aquatech Services</h2>
-                    <p className="text-[9px] text-slate-500">Water Purifier Sales, R.O. Installation & AMC Service</p>
+                    <p className="text-[9px] text-slate-500">Water Purifier Sales & Service</p>
                   </div>
                 )}
 
-                {/* Top Section: Bill/Cash Memo */}
                 <div className="space-y-2">
                   <div className="flex justify-between border-b pb-1 font-bold">
                     <span>Bill No: {billNumber}</span>
@@ -521,6 +594,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
                   <div className="bg-slate-50 p-2 rounded border border-slate-100">
                     <p className="font-bold">To,</p>
                     <p className="font-semibold text-blue-950">{name || "[Customer Name]"}</p>
+                    {phone && <p className="text-[10px] text-slate-600">Ph: {phone}</p>}
                     <p>{address1 || "[Address Line 1]"}</p>
                     <p>{address2 || "[Address Line 2]"}</p>
                   </div>
@@ -556,12 +630,32 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
                     (Rs. {rateInWords || "Zero"} Only)
                   </div>
                 </div>
+              </div>
 
-                <hr className="my-3 border-dashed border-slate-300" />
+              {/* PAGE 2 PREVIEW */}
+              <div className="rounded-xl border border-slate-300 bg-white p-5 shadow text-[11px] text-slate-800 space-y-4 font-serif relative">
+                <div className="absolute top-2 right-2 text-[9px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">PAGE 2 - WARRANTY CARD</div>
+                {useLetterhead ? (
+                  <div className="rounded border-2 border-dashed border-amber-300 bg-amber-50/50 py-3 text-center text-[10px] font-bold text-amber-700">
+                    ⬆️ {letterheadMarginInches} Inch Margin Reserved for Page 2 Letterhead Header
+                  </div>
+                ) : (
+                  <div className="border-b-2 border-blue-900 pb-2 text-center font-sans">
+                    <h2 className="text-sm font-black text-blue-950 uppercase tracking-wide">Aquatech Services</h2>
+                    <p className="text-[9px] text-slate-500">Guarantee & Warranty Certificate</p>
+                  </div>
+                )}
 
-                {/* Bottom Section: Guarantee & Warranty Certificate */}
                 <div className="space-y-2">
-                  <div className="text-center font-bold underline text-xs">
+                  <div className="flex justify-between border-b pb-1 font-bold">
+                    <div>
+                      <p>To,</p>
+                      <p className="font-semibold text-blue-950">{name || "[Customer Name]"}</p>
+                    </div>
+                    <span>Date: {date}</span>
+                  </div>
+
+                  <div className="text-center font-bold underline text-xs py-1">
                     Sub: - Guarantee & Warranty Certificate
                   </div>
 
@@ -581,12 +675,11 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
 
                   <div className="flex justify-between items-end pt-4">
                     <div>
-                      <p>Thanking You,</p>
-                      <p>Yours truly,</p>
+                      <p>Thanking You.</p>
                     </div>
                     <div className="text-right">
                       <p className="font-bold">For Aquatech Services</p>
-                      <p className="mt-3 text-[9px] italic text-slate-400">Authorised Signatory</p>
+                      <p className="mt-2 text-[9px] italic text-slate-400">Authorised Signatory</p>
                     </div>
                   </div>
                 </div>
@@ -595,7 +688,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
           </SectionCard>
 
           {/* Saved Bills List */}
-          <SectionCard title="Recent Saved Bills" description="Track previous bills and reprint anytime.">
+          <SectionCard title="Recent Saved Bills" description="Track previous bills, reprint or resend via WhatsApp.">
             <div className="mt-4 max-h-80 overflow-y-auto space-y-2 pr-1">
               {savedBills.length > 0 ? (
                 savedBills.map((b) => (
@@ -605,6 +698,14 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
                       <div className="text-[10px] text-slate-500">{b.date} | Rs. {b.rate} | {b.roName}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSendWhatsApp(b)}
+                        title="Send WhatsApp"
+                        className="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                      >
+                        💬
+                      </button>
                       <button
                         type="button"
                         onClick={() => handlePrint(b)}
@@ -635,7 +736,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-              <h3 className="text-lg font-bold text-slate-900">Google Docs Integration Setup</h3>
+              <h3 className="text-lg font-bold text-slate-900">Google Docs & PDF Drive Setup Guide</h3>
               <button
                 type="button"
                 onClick={() => setShowScriptModal(false)}
@@ -649,8 +750,8 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
               <ol className="list-decimal pl-5 space-y-2 leading-relaxed">
                 <li>Open your <b>Bill Printout Google Doc Template</b>.</li>
                 <li>Go to top menu: <b>Extensions ➔ Apps Script</b>.</li>
-                <li>Delete any existing code and paste the code below.</li>
-                <li>Replace <code>TEMPLATE_ID</code> with your Doc ID & <code>FOLDER_ID</code> with your Drive Bills folder ID.</li>
+                <li>Delete any existing code and paste the script below.</li>
+                <li>Replace <code>TEMPLATE_DOC_ID</code>, <code>BILLS_FOLDER_ID</code>, and <code>MASTER_LOG_DOC_ID</code>.</li>
                 <li>Click <b>Deploy ➔ New Deployment</b> ➔ Select <b>Web App</b>.</li>
                 <li>Set <b>Who has access</b> to <b>"Anyone"</b> and click Deploy.</li>
                 <li>Copy the generated <b>Web App URL</b> and paste it in the Webhook URL box in this app!</li>
@@ -674,12 +775,12 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
         </div>
       )}
 
-      {/* Dedicated A4 Print Window Modal */}
+      {/* Dedicated 2-Page A4 Print Window Modal */}
       {showPrintModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-md">
           <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-              <h3 className="text-lg font-bold text-slate-900">A4 Printable Sheet Preview</h3>
+              <h3 className="text-lg font-bold text-slate-900">A4 Printable Sheet Preview (2 Pages)</h3>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -699,127 +800,143 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
             </div>
 
             {/* Printable Container */}
-            <div className="print-area bg-white p-8 border border-slate-200 shadow-sm text-slate-900 font-serif" style={{ minHeight: "297mm" }}>
-              {/* Header margin for pre-printed letterhead */}
-              <div style={{ height: useLetterhead ? marginPx : "0px", transition: "height 0.2s" }} />
+            <div className="print-area bg-white text-slate-900 font-serif">
+              {/* PAGE 1: BILL / CASH MEMO */}
+              <div className="print-page bg-white p-8 border border-slate-200 shadow-sm mb-6" style={{ minHeight: "297mm", boxSizing: "border-box" }}>
+                {/* Header margin for pre-printed letterhead */}
+                <div style={{ height: useLetterhead ? marginPx : "0px", transition: "height 0.2s" }} />
 
-              {!useLetterhead && (
-                <div className="text-center border-b-2 border-slate-800 pb-4 mb-6 font-sans">
-                  <h1 className="text-2xl font-black text-slate-900 tracking-wider">AQUATECH SERVICES</h1>
-                  <p className="text-xs text-slate-600 font-semibold mt-1">
-                    Water Purifiers, Domestic & Commercial R.O. Systems Sales & Service
-                  </p>
+                {!useLetterhead && (
+                  <div className="text-center border-b-2 border-slate-800 pb-4 mb-6 font-sans">
+                    <h1 className="text-2xl font-black text-slate-900 tracking-wider">AQUATECH SERVICES</h1>
+                    <p className="text-xs text-slate-600 font-semibold mt-1">
+                      Water Purifiers, Domestic & Commercial R.O. Systems Sales & Service
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-start mb-6 text-sm">
+                  <div>
+                    <p className="font-bold">Bill No:- <span className="font-normal">{printBillData.billNumber}</span></p>
+                    <div className="mt-4">
+                      <p className="font-bold">To,</p>
+                      <p className="font-bold text-base">{printBillData.name}</p>
+                      {printBillData.phone && <p className="text-xs text-slate-600 font-sans">Ph: {printBillData.phone}</p>}
+                      <p>{printBillData.address1}</p>
+                      <p>{printBillData.address2}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold">Date:- <span className="font-normal">{printBillData.date}</span></p>
+                  </div>
                 </div>
-              )}
 
-              {/* Bill Top Section */}
-              <div className="flex justify-between items-start mb-6 text-sm">
-                <div>
-                  <p className="font-bold">Bill No:- <span className="font-normal">{printBillData.billNumber}</span></p>
-                  <div className="mt-4">
+                <div className="text-center font-bold text-lg underline tracking-wide mb-6">
+                  Bill/ Cash Memo
+                </div>
+
+                <table className="w-full border-collapse border border-slate-800 text-sm mb-6">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      <th className="border border-slate-800 p-2 text-left w-1/2">Description</th>
+                      <th className="border border-slate-800 p-2 text-center">Rate/Unit</th>
+                      <th className="border border-slate-800 p-2 text-center">Qty.</th>
+                      <th className="border border-slate-800 p-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style={{ height: "120px" }}>
+                      <td className="border border-slate-800 p-3 align-top">
+                        Aquatech Reverse Osmosis({printBillData.roName})<br />
+                        Purification System –<br />
+                        Capacity {printBillData.roCapacity}
+                      </td>
+                      <td className="border border-slate-800 p-3 align-top text-center">Rs.{printBillData.rate}</td>
+                      <td className="border border-slate-800 p-3 align-top text-center">01</td>
+                      <td className="border border-slate-800 p-3 align-top text-right">Rs.{printBillData.rate}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div className="flex justify-end font-bold text-sm mb-1">
+                  <span className="w-48">Net Amount</span>
+                  <span>Rs. {printBillData.rate}</span>
+                </div>
+
+                <div className="text-right italic text-sm mb-12">
+                  (Rs. {printBillData.rateInWords} Only)
+                </div>
+
+                <div className="flex justify-between items-end text-sm pt-8">
+                  <div>
+                    <p>Thanking You ,</p>
+                    <p>Yours truly,</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-bold">For Aquatech Services</p>
+                    <div className="h-16" />
+                    <p className="text-xs border-t border-slate-400 pt-1">Authorised Signatory</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* PAGE 2: GUARANTEE & WARRANTY CERTIFICATE */}
+              <div className="print-page print-page-break bg-white p-8 border border-slate-200 shadow-sm" style={{ minHeight: "297mm", boxSizing: "border-box" }}>
+                {/* Header margin for pre-printed letterhead on Page 2 */}
+                <div style={{ height: useLetterhead ? marginPx : "0px", transition: "height 0.2s" }} />
+
+                {!useLetterhead && (
+                  <div className="text-center border-b-2 border-slate-800 pb-4 mb-6 font-sans">
+                    <h1 className="text-2xl font-black text-slate-900 tracking-wider">AQUATECH SERVICES</h1>
+                    <p className="text-xs text-slate-600 font-semibold mt-1">
+                      Guarantee & Warranty Certificate
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-start mb-6 text-sm">
+                  <div>
                     <p className="font-bold">To,</p>
                     <p className="font-bold text-base">{printBillData.name}</p>
+                    {printBillData.phone && <p className="text-xs text-slate-600 font-sans">Ph: {printBillData.phone}</p>}
                     <p>{printBillData.address1}</p>
                     <p>{printBillData.address2}</p>
                   </div>
+                  <div className="text-right">
+                    <p className="font-bold">Date:- <span className="font-normal">{printBillData.date}</span></p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-bold">Date:- <span className="font-normal">{printBillData.date}</span></p>
+
+                <div className="text-center font-bold text-lg underline tracking-wide mb-8">
+                  Sub: - Guarantee & Warranty Certificate
                 </div>
-              </div>
 
-              <div className="text-center font-bold text-lg underline tracking-wide mb-6">
-                Bill/ Cash Memo
-              </div>
+                <div className="space-y-6 text-sm leading-relaxed mb-16">
+                  <p>Dear Sir,</p>
+                  <p className="pl-6">
+                    We hereby confirm that the Aquatech R.O, (<b>{printBillData.roName}</b>) System 1 Nos supplied to you stands One Year full warranty on following conditions: -
+                  </p>
 
-              <table className="w-full border-collapse border border-slate-800 text-sm mb-6">
-                <thead>
-                  <tr className="bg-slate-100">
-                    <th className="border border-slate-800 p-2 text-left w-1/2">Description</th>
-                    <th className="border border-slate-800 p-2 text-center">Rate/Unit</th>
-                    <th className="border border-slate-800 p-2 text-center">Qty.</th>
-                    <th className="border border-slate-800 p-2 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={{ height: "100px" }}>
-                    <td className="border border-slate-800 p-3 align-top">
-                      Aquatech Reverse Osmosis({printBillData.roName})<br />
-                      Purification System –<br />
-                      Capacity {printBillData.roCapacity}
-                    </td>
-                    <td className="border border-slate-800 p-3 align-top text-center">Rs.{printBillData.rate}</td>
-                    <td className="border border-slate-800 p-3 align-top text-center">01</td>
-                    <td className="border border-slate-800 p-3 align-top text-right">Rs.{printBillData.rate}</td>
-                  </tr>
-                </tbody>
-              </table>
+                  <p className="font-bold underline text-base">
+                    Warrantee period from {printBillData.startDate} to {printBillData.endDate}
+                  </p>
 
-              <div className="flex justify-end font-bold text-sm mb-1">
-                <span className="w-48">Net Amount</span>
-                <span>Rs. {printBillData.rate}</span>
-              </div>
-
-              <div className="text-right italic text-sm mb-8">
-                (Rs. {printBillData.rateInWords} Only)
-              </div>
-
-              <div className="flex justify-between items-end mb-16 text-sm">
-                <div>
-                  <p>Thanking You ,</p>
-                  <p>Yours truly,</p>
+                  <ul className="list-disc pl-8 space-y-3 text-sm">
+                    <li>The goods are warranted and guaranteed against any defect arising from faulty design, Plastic components, workmanship and other material for a period of One year. One Membrane & all filters and electric parts are covered under warranty period.</li>
+                    <li>The Company or its authorized agent will be only entitled to retain any part replaced under warranty.</li>
+                    <li>The Company liability under this warranty & guarantee is limited to one year only.</li>
+                  </ul>
                 </div>
-                <div className="text-center">
-                  <p className="font-bold">For Aquatech Services</p>
-                  <div className="h-12" />
-                  <p className="text-xs border-t border-slate-400 pt-1">Authorised Signatory</p>
-                </div>
-              </div>
 
-              <hr className="my-8 border-slate-300 border-dashed" />
-
-              {/* Warranty Certificate Bottom Section */}
-              <div className="flex justify-between items-start mb-4 text-sm">
-                <div>
-                  <p className="font-bold">To,</p>
-                  <p className="font-bold text-base">{printBillData.name}</p>
-                  <p>{printBillData.address1}</p>
-                  <p>{printBillData.address2}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold">Date:- <span className="font-normal">{printBillData.date}</span></p>
-                </div>
-              </div>
-
-              <div className="text-center font-bold text-lg underline tracking-wide mb-6">
-                Sub: - Guarantee & Warranty Certificate
-              </div>
-
-              <div className="space-y-4 text-sm leading-relaxed mb-12">
-                <p>Dear Sir,</p>
-                <p className="pl-6">
-                  We hereby confirm that the Aquatech R.O, (<b>{printBillData.roName}</b>) System 1 Nos supplied to you stands One Year full warranty on following conditions: -
-                </p>
-
-                <p className="font-bold underline">
-                  Warrantee period from {printBillData.startDate} to {printBillData.endDate}
-                </p>
-
-                <ul className="list-disc pl-8 space-y-2 text-sm">
-                  <li>The goods are warranted and guaranteed against any defect arising from faulty design, Plastic components, workmanship and other material for a period of One year. One Membrane & all filters and electric parts are covered under warranty period.</li>
-                  <li>The Company or its authorized agent will be only entitled to retain any part replaced under warranty.</li>
-                  <li>The Company liability under this warranty & guarantee is limited to one year only.</li>
-                </ul>
-              </div>
-
-              <div className="flex justify-between items-end text-sm">
-                <div>
-                  <p>Thanking You.</p>
-                </div>
-                <div className="text-center">
-                  <p className="font-bold">For Aquatech Services</p>
-                  <div className="h-10" />
-                  <p className="text-xs border-t border-slate-400 pt-1">Authorised Signatory</p>
+                <div className="flex justify-between items-end text-sm pt-8">
+                  <div>
+                    <p>Thanking You.</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-bold">For Aquatech Services</p>
+                    <div className="h-16" />
+                    <p className="text-xs border-t border-slate-400 pt-1">Authorised Signatory</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -827,7 +944,7 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
         </div>
       )}
 
-      {/* Print Specific CSS */}
+      {/* Print Specific CSS with Page Break */}
       <style jsx global>{`
         @media print {
           body * {
@@ -845,6 +962,10 @@ export default function BillCenter({ sheetCustomers }: BillCenterProps) {
             padding: 0;
             box-shadow: none !important;
             border: none !important;
+          }
+          .print-page-break {
+            break-before: page !important;
+            page-break-before: always !important;
           }
         }
       `}</style>
