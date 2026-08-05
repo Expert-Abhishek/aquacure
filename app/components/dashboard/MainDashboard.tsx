@@ -8,8 +8,6 @@ import {
   doc,
   getDocs,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc,
   writeBatch,
@@ -201,39 +199,55 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     saveSetting("wpd-loggedIn", String(loggedIn));
   }, [loggedIn]);
 
+  const getDocMillis = (val: any): number => {
+    if (!val) return 0;
+    if (typeof val === "number") return val;
+    if (typeof val.toMillis === "function") return val.toMillis();
+    if (typeof val.seconds === "number") return val.seconds * 1000;
+    if (typeof val === "string") {
+      const parsed = new Date(val).getTime();
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    if (val instanceof Date) return val.getTime();
+    return 0;
+  };
+
   useEffect(() => {
-    const tasksQuery = query(collection(db, "tasks"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(
-      tasksQuery,
+      collection(db, "tasks"),
       (snapshot) => {
-        setTasks(
-          snapshot.docs.map((docSnapshot) => ({
-            id: docSnapshot.id,
-            name: docSnapshot.data().name ?? "",
-            address: docSnapshot.data().address ?? "",
-            phone: docSnapshot.data().phone ?? "",
-            type: docSnapshot.data().type ?? "",
-            comment: docSnapshot.data().comment ?? "",
-            techId: docSnapshot.data().techId ?? "",
-            status: (docSnapshot.data().status ?? STATUS.PENDING) as StatusKey,
-            createdAt: docSnapshot.data().createdAt ?? null,
-            updatedAt: docSnapshot.data().updatedAt ?? null,
-            amcMonth: docSnapshot.data().amcMonth ?? "",
-            amcPrice: docSnapshot.data().amcPrice ?? "",
-            sharePhone: docSnapshot.data().sharePhone ?? true,
-          })),
-        );
+        const list = snapshot.docs.map((docSnapshot) => ({
+          id: docSnapshot.id,
+          name: docSnapshot.data().name ?? "",
+          address: docSnapshot.data().address ?? "",
+          phone: docSnapshot.data().phone ?? "",
+          type: docSnapshot.data().type ?? "",
+          comment: docSnapshot.data().comment ?? "",
+          techId: docSnapshot.data().techId ?? "",
+          status: (docSnapshot.data().status ?? STATUS.PENDING) as StatusKey,
+          createdAt: docSnapshot.data().createdAt ?? null,
+          updatedAt: docSnapshot.data().updatedAt ?? null,
+          amcMonth: docSnapshot.data().amcMonth ?? "",
+          amcPrice: docSnapshot.data().amcPrice ?? "",
+          sharePhone: docSnapshot.data().sharePhone ?? true,
+        }));
+        list.sort((a, b) => getDocMillis(b.createdAt) - getDocMillis(a.createdAt));
+        setTasks(list);
         setFirestoreLoading(false);
       },
-      () => setFirestoreLoading(false),
+      (error) => {
+        console.error("Firestore tasks error:", error);
+        setFirestoreLoading(false);
+      },
     );
 
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    getDocs(collection(db, "customers"))
-      .then((snapshot) =>
+    const unsubscribe = onSnapshot(
+      collection(db, "customers"),
+      (snapshot) => {
         setSheetCustomers(
           snapshot.docs.map((docSnapshot) => ({
             id: docSnapshot.id,
@@ -245,55 +259,63 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             active: docSnapshot.data().active ?? "",
             rowNum: docSnapshot.data().rowNum ?? undefined,
           })),
-        ),
-      )
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const queriesQuery = query(collection(db, "queries"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(
-      queriesQuery,
-      (snapshot) => {
-        setQueries(
-          snapshot.docs.map((docSnapshot) => ({
-            id: docSnapshot.id,
-            name: docSnapshot.data().name ?? "",
-            address: docSnapshot.data().address ?? "",
-            phone: docSnapshot.data().phone ?? "",
-            comment: docSnapshot.data().comment ?? "",
-            createdAt: docSnapshot.data().createdAt ?? null,
-            updatedAt: docSnapshot.data().updatedAt ?? null,
-            amcMonth: docSnapshot.data().amcMonth ?? "",
-            amcPrice: docSnapshot.data().amcPrice ?? "",
-            sharePhone: docSnapshot.data().sharePhone ?? true,
-          })),
         );
       },
-      () => {},
+      (error) => {
+        console.error("Firestore customers error:", error);
+      },
     );
 
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const inactiveQuery = query(collection(db, "inactive_customers"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(
-      inactiveQuery,
+      collection(db, "queries"),
       (snapshot) => {
-        setInactiveCustomers(
-          snapshot.docs.map((docSnapshot) => ({
-            id: docSnapshot.id,
-            name: docSnapshot.data().name ?? "",
-            address: docSnapshot.data().address ?? "",
-            phone: docSnapshot.data().phone ?? "",
-            amcMonth: docSnapshot.data().amcMonth ?? "",
-            amcPrice: docSnapshot.data().amcPrice ?? "",
-            rowNum: docSnapshot.data().rowNum ?? undefined,
-          })),
-        );
+        const list = snapshot.docs.map((docSnapshot) => ({
+          id: docSnapshot.id,
+          name: docSnapshot.data().name ?? "",
+          address: docSnapshot.data().address ?? "",
+          phone: docSnapshot.data().phone ?? "",
+          comment: docSnapshot.data().comment ?? "",
+          createdAt: docSnapshot.data().createdAt ?? null,
+          updatedAt: docSnapshot.data().updatedAt ?? null,
+          amcMonth: docSnapshot.data().amcMonth ?? "",
+          amcPrice: docSnapshot.data().amcPrice ?? "",
+          sharePhone: docSnapshot.data().sharePhone ?? true,
+        }));
+        list.sort((a, b) => getDocMillis(b.createdAt) - getDocMillis(a.createdAt));
+        setQueries(list);
       },
-      () => {},
+      (error) => {
+        console.error("Firestore queries error:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "inactive_customers"),
+      (snapshot) => {
+        const list = snapshot.docs.map((docSnapshot) => ({
+          id: docSnapshot.id,
+          name: docSnapshot.data().name ?? "",
+          address: docSnapshot.data().address ?? "",
+          phone: docSnapshot.data().phone ?? "",
+          amcMonth: docSnapshot.data().amcMonth ?? "",
+          amcPrice: docSnapshot.data().amcPrice ?? "",
+          rowNum: docSnapshot.data().rowNum ?? undefined,
+          createdAt: docSnapshot.data().createdAt ?? null,
+        }));
+        list.sort((a, b) => getDocMillis(b.createdAt) - getDocMillis(a.createdAt));
+        setInactiveCustomers(list);
+      },
+      (error) => {
+        console.error("Firestore inactive_customers error:", error);
+      },
     );
 
     return () => unsubscribe();

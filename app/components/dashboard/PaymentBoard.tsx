@@ -8,8 +8,6 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
-  query,
-  orderBy,
   serverTimestamp,
   type Timestamp,
 } from "firebase/firestore";
@@ -69,9 +67,8 @@ export default function PaymentBoard({
 
   // Real-time Firestore Sync
   useEffect(() => {
-    const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(
-      q,
+      collection(db, collectionName),
       (snapshot) => {
         const list: PaymentRecord[] = [];
         snapshot.forEach((doc) => {
@@ -88,6 +85,14 @@ export default function PaymentBoard({
             updatedAt: data.updatedAt ?? null,
           } as PaymentRecord);
         });
+        const getMillis = (v: any) => {
+          if (!v) return 0;
+          if (typeof v.toMillis === "function") return v.toMillis();
+          if (typeof v.seconds === "number") return v.seconds * 1000;
+          if (typeof v === "string") return new Date(v).getTime() || 0;
+          return 0;
+        };
+        list.sort((a, b) => getMillis(b.createdAt) - getMillis(a.createdAt));
         setRecords(list);
         setLoading(false);
       },
