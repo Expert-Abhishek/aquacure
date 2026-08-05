@@ -18,7 +18,7 @@ import { db } from "@/lib/firebase";
 import TaskBoard from "./TaskBoard";
 import QueryCenter from "./QueryCenter";
 import PaymentBoard from "./PaymentBoard";
-import BillCenter from "./BillCenter";
+import PumpBoard from "./PumpBoard";
 import { Input } from "./ui";
 import {
   ADMIN_USER,
@@ -33,7 +33,7 @@ import {
 } from "./types";
 
 interface MainDashboardProps {
-  initialMenu?: "task" | "query" | "bills" | "payment";
+  initialMenu?: "task" | "query" | "pump" | "payment";
 }
 
 function normalizeSheetId(value: string): string {
@@ -179,13 +179,13 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [pageSize, setPageSize] = useState(10);
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "bills" | "payment">(initialMenu || "task");
+  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "pump" | "payment">(initialMenu || "task");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const sidebarItems = [
     { key: "task" as const, label: "Task", description: "Active complaints and work queue" },
     { key: "query" as const, label: "Query", description: "Customer follow-ups and admin queries" },
-    { key: "bills" as const, label: "Bills", description: "Billing and invoice tracking" },
+    { key: "pump" as const, label: "Pump", description: "Pump stock tracking for Ravi, Deepak, Gudda" },
     { key: "payment" as const, label: "Payment", description: "Pending Cash Memo, RO Payment, and Inactive customers" },
   ];
 
@@ -1411,8 +1411,8 @@ function doPost(e) {
             />
           )}
 
-          {activeMenu === "bills" && (
-            <BillCenter sheetCustomers={sheetCustomers} />
+          {activeMenu === "pump" && (
+            <PumpBoard />
           )}
 
           {activeMenu === "payment" && (
