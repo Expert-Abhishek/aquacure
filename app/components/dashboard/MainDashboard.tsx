@@ -58,13 +58,34 @@ function parseSheetValues(values: string[][], sheetId: string): (Omit<Customer, 
         map[header] = row[index]?.toString().trim() ?? "";
       });
 
+      let rawPrice = map["2026"] || map["price of amc"] || map["amc price"] || "";
+      let rawBalance = map["balance"] || map["remaining balance"] || map["rem balance"] || "";
+      let rawActive = map["status"] || map["active"] || "";
+
+      // If status is missing, default to "Active". If "Not", convert to "Inactive"
+      if (!rawActive) {
+        rawActive = "Active";
+      } else if (rawActive.toLowerCase() === "not") {
+        rawActive = "Inactive";
+      }
+
+      // Auto-extract balance if embedded in legacy price cell (e.g., "2500 Balance 1000" or "2500 Balance-1000")
+      if (!rawBalance && /balance/i.test(rawPrice)) {
+        const match = rawPrice.match(/^(.+?)\s*balance\s*[\:\-]?\s*(\d+.*)$/i);
+        if (match) {
+          rawPrice = match[1].trim();
+          rawBalance = match[2].trim();
+        }
+      }
+
       parsedRows.push({
         name: map["name"] || map["customer"] || "",
         address: map["address"] || "",
         phone: map["telephone"] || map["mobile"] || map["contact"] || map["phone"] || "",
         amcMonth: map["month of new amc"] || map["month"] || map["amc"] || "",
-        amcPrice: map["2026"] || map["price of amc"] || map["amc price"] || "",
-        active: map["active"] || map["status"] || "Active",
+        amcPrice: rawPrice,
+        balance: rawBalance,
+        active: rawActive,
         _sheetId: sheetId,
         rowNum: i + 1, // Row 1 is header, data starts at Row 2 (index 1)
       });
@@ -162,6 +183,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [custFormPhone, setCustFormPhone] = useState("");
   const [custFormAmcMonth, setCustFormAmcMonth] = useState("");
   const [custFormAmcPrice, setCustFormAmcPrice] = useState("");
+  const [custFormBalance, setCustFormBalance] = useState("");
   const [custFormActive, setCustFormActive] = useState("Active");
 
   const [custFormLoading, setCustFormLoading] = useState(false);
@@ -498,7 +520,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setQuerySearch("");
   };
 
-  const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; active: string }) => {
+  const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; balance?: string; active: string }) => {
     if (!SHEET_SCRIPT_URL.trim()) {
       throw new Error("Google Apps Script Web App URL is not configured.");
     }
@@ -513,6 +535,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         phone: customer.phone,
         amcMonth: customer.amcMonth,
         amcPrice: customer.amcPrice,
+        balance: customer.balance ?? "",
         active: customer.active,
       }),
     });
@@ -523,7 +546,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     }
   };
 
-  const editCustomerInSheet = async (rowNum: number, customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; active: string }) => {
+  const editCustomerInSheet = async (rowNum: number, customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; balance?: string; active: string }) => {
     if (!SHEET_SCRIPT_URL.trim()) {
       throw new Error("Google Apps Script Web App URL is not configured.");
     }
@@ -539,6 +562,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         phone: customer.phone,
         amcMonth: customer.amcMonth,
         amcPrice: customer.amcPrice,
+        balance: customer.balance ?? "",
         active: customer.active,
       }),
     });
@@ -557,6 +581,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setCustFormPhone("");
     setCustFormAmcMonth("");
     setCustFormAmcPrice("");
+    setCustFormBalance("");
     setCustFormActive("Active");
     setCustFormError("");
     setCustFormSuccess("");
@@ -571,7 +596,8 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setCustFormPhone(customer.phone);
     setCustFormAmcMonth(customer.amcMonth);
     setCustFormAmcPrice(customer.amcPrice);
-    setCustFormActive(customer.active || "Active");
+    setCustFormBalance(customer.balance || "");
+    setCustFormActive(customer.active && customer.active !== "Not" ? customer.active : (customer.active === "Not" ? "Inactive" : "Active"));
     setCustFormError("");
     setCustFormSuccess("");
     setShowCustomerModal(true);
@@ -604,6 +630,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: custFormPhone.trim(),
           amcMonth: custFormAmcMonth.trim(),
           amcPrice: custFormAmcPrice.trim(),
+          balance: custFormBalance.trim(),
           active: custFormActive,
         });
         setCustFormSuccess("Customer successfully added to Google Sheet!");
@@ -615,6 +642,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: custFormPhone.trim(),
           amcMonth: custFormAmcMonth.trim(),
           amcPrice: custFormAmcPrice.trim(),
+          balance: custFormBalance.trim(),
           active: custFormActive,
         });
         setCustFormSuccess("Customer successfully updated in Google Sheet!");
@@ -634,6 +662,37 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     }
   };
 
+  const handleAutoFixSheetRows = async () => {
+    if (!sheetCustomers.length) return;
+    if (!confirm("This will split any embedded balance amounts into the new Balance column and set status to Active for all rows. Continue?")) return;
+    
+    setSheetLoading(true);
+    try {
+      let count = 0;
+      for (const c of sheetCustomers) {
+        if (c.rowNum) {
+          await editCustomerInSheet(c.rowNum, {
+            name: c.name,
+            address: c.address,
+            phone: c.phone,
+            amcMonth: c.amcMonth || "",
+            amcPrice: c.amcPrice || "",
+            balance: c.balance || "",
+            active: c.active || "Active",
+          });
+          count++;
+        }
+      }
+      await fetchSheet();
+      alert(`Successfully processed & synced ${count} rows!`);
+    } catch (err) {
+      console.error("Error auto-fixing sheet rows:", err);
+      alert("Failed to auto-fix sheet rows. Please check Apps Script endpoint connection.");
+    } finally {
+      setSheetLoading(false);
+    }
+  };
+
   const markCustomerInactive = async (customer: Customer) => {
     setSheetLoading(true);
     try {
@@ -643,6 +702,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         phone: customer.phone,
         amcMonth: customer.amcMonth,
         amcPrice: customer.amcPrice,
+        balance: customer.balance || "",
         rowNum: customer.rowNum || null,
         createdAt: serverTimestamp(),
       });
@@ -654,7 +714,8 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: customer.phone,
           amcMonth: customer.amcMonth || "",
           amcPrice: customer.amcPrice || "",
-          active: "Not",
+          balance: customer.balance || "",
+          active: "Inactive",
         });
       }
 
@@ -680,6 +741,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             phone: inactiveCust.phone || "",
             amcMonth: inactiveCust.amcMonth || "",
             amcPrice: inactiveCust.amcPrice || "",
+            balance: inactiveCust.balance || "",
             active: "Active",
           });
         }
@@ -1115,7 +1177,8 @@ function doPost(e) {
   var phoneCol = colMap["telephone"] || colMap["mobile"] || colMap["contact"] || colMap["phone"] || 3;
   var monthCol = colMap["month of new amc"] || colMap["month"] || colMap["amc"] || 4;
   var priceCol = colMap["2026"] || colMap["price of amc"] || colMap["amc price"] || 5;
-  var activeCol = colMap["active"] || colMap["status"] || 6;
+  var balanceCol = colMap["balance"] || colMap["remaining balance"] || 6;
+  var activeCol = colMap["status"] || colMap["active"] || 7;
 
   if (data.action === "add") {
     var nextRow = sheet.getLastRow() + 1;
@@ -1124,6 +1187,7 @@ function doPost(e) {
     sheet.getRange(nextRow, phoneCol).setValue(data.phone || "");
     sheet.getRange(nextRow, monthCol).setValue(data.amcMonth || "");
     sheet.getRange(nextRow, priceCol).setValue(data.amcPrice || "");
+    sheet.getRange(nextRow, balanceCol).setValue(data.balance || "");
     sheet.getRange(nextRow, activeCol).setValue(data.active || "Active");
     return ContentService.createTextOutput(JSON.stringify({ success: true, rowNum: nextRow }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -1138,12 +1202,32 @@ function doPost(e) {
     if (data.phone !== undefined) sheet.getRange(rowNum, phoneCol).setValue(data.phone);
     if (data.amcMonth !== undefined) sheet.getRange(rowNum, monthCol).setValue(data.amcMonth);
     if (data.amcPrice !== undefined) sheet.getRange(rowNum, priceCol).setValue(data.amcPrice);
+    if (data.balance !== undefined) sheet.getRange(rowNum, balanceCol).setValue(data.balance);
     if (data.active !== undefined) sheet.getRange(rowNum, activeCol).setValue(data.active);
     return ContentService.createTextOutput(JSON.stringify({ success: true }))
       .setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Invalid action" }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Optional 1-Click Sheet Fixer (Run in Apps Script Editor):
+function fixSheetColumns() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("customer");
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var priceCol = 5, balanceCol = 6, activeCol = 7;
+  for (var i = 0; i < headers.length; i++) {
+    var h = headers[i].toString().toLowerCase().trim();
+    if (h === "2026") priceCol = i + 1;
+    if (h === "balance") balanceCol = i + 1;
+    if (h === "status" || h === "active") activeCol = i + 1;
+  }
+  if (headers.indexOf("Balance") === -1 && headers.indexOf("balance") === -1) {
+    sheet.getRange(1, balanceCol).setValue("Balance");
+  }
+  if (headers.indexOf("Status") === -1 && headers.indexOf("status") === -1) {
+    sheet.getRange(1, activeCol).setValue("Status");
+  }
 }`}
                           </pre>
                         </details>
@@ -1159,6 +1243,15 @@ function doPost(e) {
                         <p className="text-xs text-slate-500">View, search, add, or edit customers in the synced Google Sheet.</p>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleAutoFixSheetRows}
+                          disabled={sheetLoading || !sheetCustomers.length}
+                          title="Split legacy balance values into new Balance column and set all statuses to Active in Google Sheets"
+                          className="rounded-2xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>✨</span> Auto-Fix Sheet Columns
+                        </button>
                         <button
                           type="button"
                           onClick={handleOpenAddCustomer}
@@ -1205,7 +1298,7 @@ function doPost(e) {
                     {/* Directory Table */}
                     <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                       <div className="w-full overflow-x-auto scrollbar-thin">
-                        <table className="w-full border-collapse text-left text-xs text-slate-500 min-w-[800px]">
+                        <table className="w-full border-collapse text-left text-xs text-slate-500 min-w-[900px]">
                           <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
                             <tr>
                               <th className="px-4 py-3">Row</th>
@@ -1213,8 +1306,9 @@ function doPost(e) {
                               <th className="px-4 py-3">Address</th>
                               <th className="px-4 py-3">Phone</th>
                               <th className="px-4 py-3">AMC Month</th>
-                              <th className="px-4 py-3">Active</th>
-                              <th className="px-4 py-3">Price</th>
+                              <th className="px-4 py-3">2026 Price</th>
+                              <th className="px-4 py-3">Balance</th>
+                              <th className="px-4 py-3">Status</th>
                               <th className="px-4 py-3 text-right">Actions</th>
                             </tr>
                           </thead>
@@ -1224,27 +1318,34 @@ function doPost(e) {
                                 <tr key={c.id} className="hover:bg-slate-50/50 transition">
                                   <td className="px-4 py-3 text-slate-400 font-mono">#{c.rowNum ?? "?"}</td>
                                   <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
-                                  <td className="px-4 py-3 max-w-[200px] truncate" title={c.address}>{c.address}</td>
+                                  <td className="px-4 py-3 max-w-[180px] truncate" title={c.address}>{c.address}</td>
                                   <td className="px-4 py-3 font-mono">{c.phone}</td>
                                   <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
+                                  <td className="px-4 py-3 font-semibold text-blue-600">
+                                    {c.amcPrice ? `₹${c.amcPrice}` : "—"}
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold">
+                                    {c.balance && c.balance !== "0" ? (
+                                      <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
+                                        ₹{c.balance}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400">—</span>
+                                    )}
+                                  </td>
                                   <td className="px-4 py-3">
                                     {(() => {
-                                      const priceLower = c.amcPrice?.toLowerCase() || "";
-                                      const hasBalance = priceLower.includes("balance") || priceLower.includes("bal");
-                                      const isInactive = c.active === "Not" || hasBalance || inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name);
+                                      const isInactive = c.active === "Inactive" || c.active === "Not" || inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name);
                                       return isInactive ? (
-                                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 border border-rose-200">
                                           Inactive
                                         </span>
                                       ) : (
-                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                                          {c.active || "Active"}
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+                                          {c.active && c.active !== "Not" ? c.active : "Active"}
                                         </span>
                                       );
                                     })()}
-                                  </td>
-                                  <td className="px-4 py-3 font-semibold text-blue-600">
-                                    {c.amcPrice || "—"}
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <div className="flex justify-end gap-2">
@@ -1258,9 +1359,7 @@ function doPost(e) {
                                       </button>
                                       {(() => {
                                         const inactiveDoc = inactiveCustomers.find((ic) => ic.phone === c.phone && ic.name === c.name);
-                                        const priceLower = c.amcPrice?.toLowerCase() || "";
-                                        const hasBalance = priceLower.includes("balance") || priceLower.includes("bal");
-                                        const isInactive = c.active === "Not" || hasBalance || !!inactiveDoc;
+                                        const isInactive = c.active === "Inactive" || c.active === "Not" || !!inactiveDoc;
                                         return isInactive ? (
                                           <button
                                             type="button"
@@ -1276,6 +1375,7 @@ function doPost(e) {
                                                     phone: c.phone,
                                                     amcMonth: c.amcMonth || "",
                                                     amcPrice: c.amcPrice || "",
+                                                    balance: c.balance || "",
                                                     active: "Active",
                                                   });
                                                   await fetchSheet();
@@ -1309,7 +1409,7 @@ function doPost(e) {
                               ))
                             ) : (
                               <tr>
-                                <td colSpan={8} className="text-center py-8 text-slate-400">
+                                <td colSpan={9} className="text-center py-8 text-slate-400">
                                   No customer records found.
                                 </td>
                               </tr>
@@ -1672,29 +1772,35 @@ function doPost(e) {
                   onChange={setCustFormPhone}
                   placeholder="e.g. 9876543210"
                 />
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   <Input
                     label="AMC Month"
                     value={custFormAmcMonth}
                     onChange={setCustFormAmcMonth}
-                    placeholder="e.g. August"
+                    placeholder="e.g. M-9"
                   />
                   <Input
-                    label="AMC Price (₹)"
+                    label="2026 Price (₹)"
                     value={custFormAmcPrice}
                     onChange={setCustFormAmcPrice}
-                    placeholder="e.g. 4500"
+                    placeholder="e.g. 2500"
+                  />
+                  <Input
+                    label="Balance (₹)"
+                    value={custFormBalance}
+                    onChange={setCustFormBalance}
+                    placeholder="e.g. 1000"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-700">Active Status</label>
+                  <label className="text-xs font-semibold text-slate-700">Status</label>
                   <select
                     value={custFormActive}
                     onChange={(e) => setCustFormActive(e.target.value)}
                     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs outline-none focus:border-slate-400 font-medium text-slate-700"
                   >
                     <option value="Active">Active</option>
-                    <option value="Not">Not</option>
+                    <option value="Inactive">Inactive</option>
                   </select>
                 </div>
 
