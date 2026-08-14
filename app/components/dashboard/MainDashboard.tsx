@@ -31,7 +31,7 @@ import {
 } from "./types";
 
 interface MainDashboardProps {
-  initialMenu?: "task" | "query" | "pump" | "payment";
+  initialMenu?: "task" | "customers" | "query" | "pump" | "payment";
 }
 
 function normalizeSheetId(value: string): string {
@@ -181,7 +181,6 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [custFormError, setCustFormError] = useState("");
   const [custFormSuccess, setCustFormSuccess] = useState("");
 
-  const [tab, setTab] = useState<"tasks" | "import" | "inactive">("tasks");
   const [paymentTab, setPaymentTab] = useState<"inactive" | "cashmemo" | "ropayment">("inactive");
   const [inactiveCustomers, setInactiveCustomers] = useState<Customer[]>([]);
   const [inactiveSearch, setInactiveSearch] = useState("");
@@ -190,11 +189,12 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   const [pageSize, setPageSize] = useState(10);
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [activeMenu, setActiveMenu] = useState<"task" | "query" | "pump" | "payment">(initialMenu || "task");
+  const [activeMenu, setActiveMenu] = useState<"task" | "customers" | "query" | "pump" | "payment">(initialMenu || "task");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const sidebarItems = [
     { key: "task" as const, label: "Task", description: "Active complaints and work queue" },
+    { key: "customers" as const, label: "Customers", description: "Sheet customer directory & Google Sheet sync" },
     { key: "query" as const, label: "Query", description: "Customer follow-ups and admin queries" },
     { key: "pump" as const, label: "Pump", description: "Pump stock tracking for Ravi, Deepak, Gudda" },
     { key: "payment" as const, label: "Payment", description: "Pending Cash Memo, RO Payment, and Inactive customers" },
@@ -1050,75 +1050,125 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
 
         <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
           {activeMenu === "task" && (
+            <TaskBoard
+              tasks={tasks}
+              firestoreLoading={firestoreLoading}
+              sheetCustomers={sheetCustomers}
+              search={search}
+              taskName={taskName}
+              taskAddress={taskAddress}
+              taskPhone={taskPhone}
+              taskComment={taskComment}
+              taskAmcMonth={taskAmcMonth}
+              taskAmcPrice={taskAmcPrice}
+              taskSharePhone={taskSharePhone}
+              taskType={taskType}
+              taskTech={taskTech}
+              taskError={taskError}
+              searchResults={searchResults}
+              pageSize={pageSize}
+              filterStatus={filterStatus}
+              page={page}
+              totalPages={totalPages}
+              filteredTasks={filteredTasks}
+              pageTasks={pageTasks}
+              onSearchChange={setSearch}
+              onTaskNameChange={setTaskName}
+              onTaskAddressChange={setTaskAddress}
+              onTaskPhoneChange={setTaskPhone}
+              onTaskCommentChange={setTaskComment}
+              onTaskAmcMonthChange={setTaskAmcMonth}
+              onTaskAmcPriceChange={setTaskAmcPrice}
+              onTaskSharePhoneChange={setTaskSharePhone}
+              onTaskTypeChange={setTaskType}
+              onTaskTechChange={setTaskTech}
+              onAddTask={addTask}
+              onSaveTask={saveTask}
+              onCancelEditTask={cancelTaskEdit}
+              onEditTask={startTaskEdit}
+              onEditTaskNameChange={onEditTaskNameChange}
+              onEditTaskAddressChange={onEditTaskAddressChange}
+              onEditTaskPhoneChange={onEditTaskPhoneChange}
+              onEditTaskCommentChange={onEditTaskCommentChange}
+              onEditTaskAmcMonthChange={onEditTaskAmcMonthChange}
+              onEditTaskAmcPriceChange={onEditTaskAmcPriceChange}
+              onEditTaskTypeChange={onEditTaskTypeChange}
+              onEditTaskTechChange={onEditTaskTechChange}
+              onEditTaskSharePhoneChange={onEditTaskSharePhoneChange}
+              onFillFromCustomer={fillFromCustomer}
+              editingTask={editingTask}
+              onSendTask={resendTask}
+              onFilterStatusChange={setFilterStatus}
+              onPageSizeChange={setPageSize}
+              onPageChange={setPage}
+              onDeleteTask={deleteTask}
+              selectedTaskIds={selectedTaskIds}
+              onToggleTaskSelection={toggleTaskSelection}
+              onToggleSelectAll={toggleSelectAll}
+              onDeleteSelectedTasks={deleteSelectedTasks}
+            />
+          )}
+
+          {activeMenu === "customers" && (
             <div className="space-y-6">
-              <div className="flex gap-2">
-                {([['tasks','Tasks'], ['import','Sheet Import']] as const).map(([value, label]) => (
-                  <button key={value} type="button" onClick={() => setTab(value)} className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${tab === value ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {/* Google Sheets Connection Settings Accordion */}
+              <details className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm [&_summary::-webkit-details-marker]:hidden">
+                <summary className="flex cursor-pointer items-center justify-between font-semibold text-slate-900 list-none">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">⚙️</span>
+                    <div>
+                      <h3 className="text-md font-semibold text-slate-900">Google Sheet Connection Credentials</h3>
+                      <p className="text-xs text-slate-500 font-normal">Configure custom sheet IDs and API writes.</p>
+                    </div>
+                  </div>
+                  <span className="transition group-open:rotate-180 text-slate-400">
+                    <svg fill="none" height="24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
+                  </span>
+                </summary>
+                <div className="mt-6 border-t border-slate-100 pt-6 space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input
+                      label="Spreadsheet ID"
+                      value={sheetId}
+                      onChange={(v) => {
+                        setSheetId(v);
+                        saveSetting("sheetId", v);
+                      }}
+                      placeholder="Spreadsheet ID"
+                    />
+                    <Input
+                      label="Sheets API Key (Read-only)"
+                      value={sheetApiKey}
+                      onChange={(v) => {
+                        setSheetApiKey(v);
+                        saveSetting("sheetApiKey", v);
+                      }}
+                      placeholder="API Key"
+                    />
+                  </div>
 
-              {tab === "import" && (
-                <div className="space-y-6">
-                  {/* Google Sheets Connection Settings Accordion */}
-                  <details className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm [&_summary::-webkit-details-marker]:hidden">
-                    <summary className="flex cursor-pointer items-center justify-between font-semibold text-slate-900 list-none">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl">⚙️</span>
-                        <div>
-                          <h3 className="text-md font-semibold text-slate-900">Google Sheet Connection Credentials</h3>
-                          <p className="text-xs text-slate-500 font-normal">Configure custom sheet IDs and API writes.</p>
-                        </div>
-                      </div>
-                      <span className="transition group-open:rotate-180 text-slate-400">
-                        <svg fill="none" height="24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
-                      </span>
-                    </summary>
-                    <div className="mt-6 border-t border-slate-100 pt-6 space-y-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <Input
-                          label="Spreadsheet ID"
-                          value={sheetId}
-                          onChange={(v) => {
-                            setSheetId(v);
-                            saveSetting("sheetId", v);
-                          }}
-                          placeholder="Spreadsheet ID"
-                        />
-                        <Input
-                          label="Sheets API Key (Read-only)"
-                          value={sheetApiKey}
-                          onChange={(v) => {
-                            setSheetApiKey(v);
-                            saveSetting("sheetApiKey", v);
-                          }}
-                          placeholder="API Key"
-                        />
-                      </div>
+                  {/* Setup Instructions Card */}
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 mt-4">
+                    <h4 className="text-sm font-bold text-blue-900 flex items-center gap-1.5">
+                      <span>💡</span> Apps Script Connection Instructions
+                    </h4>
+                    <p className="text-xs text-blue-800 mt-1 leading-relaxed">
+                      To support saving changes and adding new rows back to your spreadsheet from the app:
+                    </p>
+                    <ol className="list-decimal list-inside text-[11px] text-blue-700 mt-2 space-y-1 leading-relaxed">
+                      <li>Open your Google Sheet and navigate to <strong>Extensions &rarr; Apps Script</strong>.</li>
+                      <li>Delete any template code and paste the custom integration code (provided below).</li>
+                      <li>Click <strong>Deploy &rarr; New Deployment</strong>, select <strong>Web App</strong>.</li>
+                      <li>Set <strong>Execute as:</strong> <code>Me</code>, and <strong>Who has access:</strong> <code>Anyone</code>.</li>
+                      <li>Deploy and authorize permissions.</li>
+                    </ol>
 
-                      {/* Setup Instructions Card */}
-                      <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 mt-4">
-                        <h4 className="text-sm font-bold text-blue-900 flex items-center gap-1.5">
-                          <span>💡</span> Apps Script Connection Instructions
-                        </h4>
-                        <p className="text-xs text-blue-800 mt-1 leading-relaxed">
-                          To support saving changes and adding new rows back to your spreadsheet from the app:
-                        </p>
-                        <ol className="list-decimal list-inside text-[11px] text-blue-700 mt-2 space-y-1 leading-relaxed">
-                          <li>Open your Google Sheet and navigate to <strong>Extensions &rarr; Apps Script</strong>.</li>
-                          <li>Delete any template code and paste the custom integration code (provided below).</li>
-                          <li>Click <strong>Deploy &rarr; New Deployment</strong>, select <strong>Web App</strong>.</li>
-                          <li>Set <strong>Execute as:</strong> <code>Me</code>, and <strong>Who has access:</strong> <code>Anyone</code>.</li>
-                          <li>Deploy and authorize permissions.</li>
-                        </ol>
-
-                        <details className="mt-4 rounded-xl border border-blue-200 bg-white p-3 [&_summary::-webkit-details-marker]:hidden">
-                          <summary className="cursor-pointer text-xs font-semibold text-blue-900 flex items-center justify-between">
-                            <span>📋 View Apps Script Code</span>
-                            <span className="text-[10px] bg-blue-100 px-2 py-0.5 rounded-full">Copy Code</span>
-                          </summary>
-                          <pre className="mt-2 block w-full overflow-x-auto rounded-lg bg-slate-900 p-3 text-[10px] font-mono text-slate-300">
+                    <details className="mt-4 rounded-xl border border-blue-200 bg-white p-3 [&_summary::-webkit-details-marker]:hidden">
+                      <summary className="cursor-pointer text-xs font-semibold text-blue-900 flex items-center justify-between">
+                        <span>📋 View Apps Script Code</span>
+                        <span className="text-[10px] bg-blue-100 px-2 py-0.5 rounded-full">Copy Code</span>
+                      </summary>
+                      <pre className="mt-2 block w-full overflow-x-auto rounded-lg bg-slate-900 p-3 text-[10px] font-mono text-slate-300">
 {`function doGet(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("customer");
   var rows = sheet.getDataRange().getValues();
@@ -1192,277 +1242,214 @@ function fixSheetColumns() {
     sheet.getRange(1, activeCol).setValue("Status");
   }
 }`}
-                          </pre>
-                        </details>
-                      </div>
-                    </div>
-                  </details>
+                      </pre>
+                    </details>
+                  </div>
+                </div>
+              </details>
 
-                  {/* Main Customer List Directory */}
-                  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4">
-                      <div>
-                        <h2 className="text-lg font-bold text-slate-900">Sheet Customer Directory</h2>
-                        <p className="text-xs text-slate-500">View, search, add, or edit customers in the synced Google Sheet.</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={handleOpenAddCustomer}
-                          className="rounded-2xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-500 cursor-pointer"
-                        >
-                          ➕ Add Customer
-                        </button>
-                        <button
-                          type="button"
-                          onClick={fetchSheet}
-                          disabled={sheetLoading}
-                          className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
-                        >
-                          {sheetLoading ? "Syncing..." : "↻ Sync & Reload"}
-                        </button>
-                      </div>
-                    </div>
+              {/* Main Customer List Directory */}
+              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Sheet Customer Directory</h2>
+                    <p className="text-xs text-slate-500">View, search, add, or edit customers in the synced Google Sheet.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleOpenAddCustomer}
+                      className="rounded-2xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-500 cursor-pointer"
+                    >
+                      ➕ Add Customer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={fetchSheet}
+                      disabled={sheetLoading}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                    >
+                      {sheetLoading ? "Syncing..." : "↻ Sync & Reload"}
+                    </button>
+                  </div>
+                </div>
 
-                    {/* Search and Feedback Status */}
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
-                      <div className="w-full sm:max-w-xs">
-                        <input
-                          type="text"
-                          placeholder="Search directory by name, phone, address..."
-                          value={sheetSearch}
-                          onChange={(e) => setSheetSearch(e.target.value)}
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs outline-none focus:border-slate-400"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {sheetCustomers.length > 0 && (
-                          <span className="text-xs font-medium text-emerald-600">
-                            ✓ {sheetCustomers.length} records loaded ({filteredSheetCustomers.length} matches)
-                          </span>
-                        )}
-                        {sheetError && (
-                          <span className="text-xs font-medium text-rose-600">
-                            ⚠️ Error: {sheetError}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                {/* Search and Feedback Status */}
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+                  <div className="w-full sm:max-w-xs">
+                    <input
+                      type="text"
+                      placeholder="Search directory by name, phone, address..."
+                      value={sheetSearch}
+                      onChange={(e) => setSheetSearch(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs outline-none focus:border-slate-400"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {sheetCustomers.length > 0 && (
+                      <span className="text-xs font-medium text-emerald-600">
+                        ✓ {sheetCustomers.length} records loaded ({filteredSheetCustomers.length} matches)
+                      </span>
+                    )}
+                    {sheetError && (
+                      <span className="text-xs font-medium text-rose-600">
+                        ⚠️ Error: {sheetError}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-                    {/* Directory Table */}
-                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                      <div className="w-full overflow-x-auto scrollbar-thin">
-                        <table className="w-full border-collapse text-left text-xs text-slate-500 min-w-[900px]">
-                          <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
-                            <tr>
-                              <th className="px-4 py-3">Row</th>
-                              <th className="px-4 py-3">Customer Name</th>
-                              <th className="px-4 py-3">Address</th>
-                              <th className="px-4 py-3">Phone</th>
-                              <th className="px-4 py-3">AMC Month</th>
-                              <th className="px-4 py-3">2026 Price</th>
-                              <th className="px-4 py-3">Balance</th>
-                              <th className="px-4 py-3">Status</th>
-                              <th className="px-4 py-3 text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {pageSheetCustomers.length > 0 ? (
-                              pageSheetCustomers.map((c) => (
-                                <tr key={c.id} className="hover:bg-slate-50/50 transition">
-                                  <td className="px-4 py-3 text-slate-400 font-mono">#{c.rowNum ?? "?"}</td>
-                                  <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
-                                  <td className="px-4 py-3 max-w-[180px] truncate" title={c.address}>{c.address}</td>
-                                  <td className="px-4 py-3 font-mono">{c.phone}</td>
-                                  <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
-                                  <td className="px-4 py-3 font-semibold text-blue-600">
-                                    {c.amcPrice ? `₹${c.amcPrice}` : "—"}
-                                  </td>
-                                  <td className="px-4 py-3 font-semibold">
-                                    {c.balance && c.balance !== "0" ? (
-                                      <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
-                                        ₹{c.balance}
-                                      </span>
-                                    ) : (
-                                      <span className="text-slate-400">—</span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {(() => {
-                                      const isInactive = c.active === "Inactive" || c.active === "Not" || inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name);
-                                      return isInactive ? (
-                                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 border border-rose-200">
-                                          Inactive
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
-                                          {c.active && c.active !== "Not" ? c.active : "Active"}
-                                        </span>
-                                      );
-                                    })()}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <div className="flex justify-end gap-2">
+                {/* Directory Table */}
+                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className="w-full overflow-x-auto scrollbar-thin">
+                    <table className="w-full border-collapse text-left text-xs text-slate-500 min-w-[900px]">
+                      <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-700 border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3">Row</th>
+                          <th className="px-4 py-3">Customer Name</th>
+                          <th className="px-4 py-3">Address</th>
+                          <th className="px-4 py-3">Phone</th>
+                          <th className="px-4 py-3">AMC Month</th>
+                          <th className="px-4 py-3">2026 Price</th>
+                          <th className="px-4 py-3">Balance</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {pageSheetCustomers.length > 0 ? (
+                          pageSheetCustomers.map((c) => (
+                            <tr key={c.id} className="hover:bg-slate-50/50 transition">
+                              <td className="px-4 py-3 text-slate-400 font-mono">#{c.rowNum ?? "?"}</td>
+                              <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
+                              <td className="px-4 py-3 max-w-[180px] truncate" title={c.address}>{c.address}</td>
+                              <td className="px-4 py-3 font-mono">{c.phone}</td>
+                              <td className="px-4 py-3 font-medium text-slate-600">{c.amcMonth || "—"}</td>
+                              <td className="px-4 py-3 font-semibold text-blue-600">
+                                {c.amcPrice ? `₹${c.amcPrice}` : "—"}
+                              </td>
+                              <td className="px-4 py-3 font-semibold">
+                                {c.balance && c.balance !== "0" ? (
+                                  <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
+                                    ₹{c.balance}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                {(() => {
+                                  const isInactive = c.active === "Inactive" || c.active === "Not" || inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name);
+                                  return isInactive ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 border border-rose-200">
+                                      Inactive
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+                                      {c.active && c.active !== "Not" ? c.active : "Active"}
+                                    </span>
+                                  );
+                                })()}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditCustomer(c)}
+                                    title="Edit Details"
+                                    className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition cursor-pointer text-xs animate-none"
+                                  >
+                                    ✏️
+                                  </button>
+                                  {(() => {
+                                    const inactiveDoc = inactiveCustomers.find((ic) => ic.phone === c.phone && ic.name === c.name);
+                                    const isInactive = c.active === "Inactive" || c.active === "Not" || !!inactiveDoc;
+                                    return isInactive ? (
                                       <button
                                         type="button"
-                                        onClick={() => handleOpenEditCustomer(c)}
-                                        title="Edit Details"
-                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition cursor-pointer text-xs animate-none"
+                                        onClick={async () => {
+                                          if (inactiveDoc?.id) {
+                                            await markCustomerActive(inactiveDoc.id);
+                                          } else if (c.rowNum) {
+                                            setSheetLoading(true);
+                                            try {
+                                              await editCustomerInSheet(c.rowNum, {
+                                                name: c.name,
+                                                address: c.address,
+                                                phone: c.phone,
+                                                amcMonth: c.amcMonth || "",
+                                                amcPrice: c.amcPrice || "",
+                                                balance: c.balance || "",
+                                                active: "Active",
+                                              });
+                                              await fetchSheet();
+                                            } catch (err) {
+                                              console.error("Error activating customer:", err);
+                                              alert("Failed to activate customer.");
+                                            } finally {
+                                              setSheetLoading(false);
+                                            }
+                                          }
+                                        }}
+                                        title="Move to Active"
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer text-xs animate-none"
                                       >
-                                        ✏️
+                                        ✅
                                       </button>
-                                      {(() => {
-                                        const inactiveDoc = inactiveCustomers.find((ic) => ic.phone === c.phone && ic.name === c.name);
-                                        const isInactive = c.active === "Inactive" || c.active === "Not" || !!inactiveDoc;
-                                        return isInactive ? (
-                                          <button
-                                            type="button"
-                                            onClick={async () => {
-                                              if (inactiveDoc?.id) {
-                                                await markCustomerActive(inactiveDoc.id);
-                                              } else if (c.rowNum) {
-                                                setSheetLoading(true);
-                                                try {
-                                                  await editCustomerInSheet(c.rowNum, {
-                                                    name: c.name,
-                                                    address: c.address,
-                                                    phone: c.phone,
-                                                    amcMonth: c.amcMonth || "",
-                                                    amcPrice: c.amcPrice || "",
-                                                    balance: c.balance || "",
-                                                    active: "Active",
-                                                  });
-                                                  await fetchSheet();
-                                                } catch (err) {
-                                                  console.error("Error activating customer:", err);
-                                                  alert("Failed to activate customer.");
-                                                } finally {
-                                                  setSheetLoading(false);
-                                                }
-                                              }
-                                            }}
-                                            title="Move to Active"
-                                            className="w-8 h-8 flex items-center justify-center rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer text-xs animate-none"
-                                          >
-                                            ✅
-                                          </button>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => markCustomerInactive(c)}
-                                            title="Move to Inactive"
-                                            className="w-8 h-8 flex items-center justify-center rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 transition cursor-pointer text-xs animate-none"
-                                          >
-                                            💤
-                                          </button>
-                                        );
-                                      })()}
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))
-                            ) : (
-                              <tr>
-                                <td colSpan={9} className="text-center py-8 text-slate-400">
-                                  No customer records found.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* Pagination Controls */}
-                    {totalSheetPages > 1 && (
-                      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-                        <span className="text-[11px] text-slate-500">
-                          Page {sheetPage} of {totalSheetPages}
-                        </span>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            disabled={sheetPage === 1}
-                            onClick={() => setSheetPage((p) => Math.max(1, p - 1))}
-                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
-                          >
-                            Previous
-                          </button>
-                          <button
-                            type="button"
-                            disabled={sheetPage === totalSheetPages}
-                            onClick={() => setSheetPage((p) => Math.min(totalSheetPages, p + 1))}
-                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
-                          >
-                            Next
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </section>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => markCustomerInactive(c)}
+                                        title="Move to Inactive"
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 transition cursor-pointer text-xs animate-none"
+                                      >
+                                        💤
+                                      </button>
+                                    );
+                                  })()}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={9} className="text-center py-8 text-slate-400">
+                              No customer records found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              )}
 
-
-              {tab === "tasks" && (
-                <TaskBoard
-                  tasks={tasks}
-                  firestoreLoading={firestoreLoading}
-                  sheetCustomers={sheetCustomers}
-                  search={search}
-                  taskName={taskName}
-                  taskAddress={taskAddress}
-                  taskPhone={taskPhone}
-                  taskComment={taskComment}
-                  taskAmcMonth={taskAmcMonth}
-                  taskAmcPrice={taskAmcPrice}
-                  taskSharePhone={taskSharePhone}
-                  taskType={taskType}
-                  taskTech={taskTech}
-                  taskError={taskError}
-                  searchResults={searchResults}
-                  pageSize={pageSize}
-                  filterStatus={filterStatus}
-                  page={page}
-                  totalPages={totalPages}
-                  filteredTasks={filteredTasks}
-                  pageTasks={pageTasks}
-                  onSearchChange={setSearch}
-                  onTaskNameChange={setTaskName}
-                  onTaskAddressChange={setTaskAddress}
-                  onTaskPhoneChange={setTaskPhone}
-                  onTaskCommentChange={setTaskComment}
-                  onTaskAmcMonthChange={setTaskAmcMonth}
-                  onTaskAmcPriceChange={setTaskAmcPrice}
-                  onTaskSharePhoneChange={setTaskSharePhone}
-                  onTaskTypeChange={setTaskType}
-                  onTaskTechChange={setTaskTech}
-                  onAddTask={addTask}
-                  onSaveTask={saveTask}
-                  onCancelEditTask={cancelTaskEdit}
-                  onEditTask={startTaskEdit}
-                  onEditTaskNameChange={onEditTaskNameChange}
-                  onEditTaskAddressChange={onEditTaskAddressChange}
-                  onEditTaskPhoneChange={onEditTaskPhoneChange}
-                  onEditTaskCommentChange={onEditTaskCommentChange}
-                  onEditTaskAmcMonthChange={onEditTaskAmcMonthChange}
-                  onEditTaskAmcPriceChange={onEditTaskAmcPriceChange}
-                  onEditTaskTypeChange={onEditTaskTypeChange}
-                  onEditTaskTechChange={onEditTaskTechChange}
-                  onEditTaskSharePhoneChange={onEditTaskSharePhoneChange}
-                  onFillFromCustomer={fillFromCustomer}
-                  editingTask={editingTask}
-                  onSendTask={resendTask}
-                  onFilterStatusChange={setFilterStatus}
-                  onPageSizeChange={setPageSize}
-                  onPageChange={setPage}
-                  onDeleteTask={deleteTask}
-                  selectedTaskIds={selectedTaskIds}
-                  onToggleTaskSelection={toggleTaskSelection}
-                  onToggleSelectAll={toggleSelectAll}
-                  onDeleteSelectedTasks={deleteSelectedTasks}
-                />
-              )}
+                {/* Pagination Controls */}
+                {totalSheetPages > 1 && (
+                  <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+                    <span className="text-[11px] text-slate-500">
+                      Page {sheetPage} of {totalSheetPages}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={sheetPage === 1}
+                        onClick={() => setSheetPage((p) => Math.max(1, p - 1))}
+                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={sheetPage === totalSheetPages}
+                        onClick={() => setSheetPage((p) => Math.min(totalSheetPages, p + 1))}
+                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
             </div>
           )}
 
@@ -1605,7 +1592,6 @@ function fixSheetColumns() {
                                         type="button"
                                         onClick={() => {
                                           fillFromCustomer(c);
-                                          setTab("tasks");
                                           setActiveMenu("task");
                                         }}
                                         title="Create Task"
