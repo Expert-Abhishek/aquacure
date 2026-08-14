@@ -269,6 +269,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
             phone: docSnapshot.data().phone ?? "",
             amcMonth: docSnapshot.data().amcMonth ?? "",
             amcPrice: docSnapshot.data().amcPrice ?? "",
+            balance: docSnapshot.data().balance ?? "",
             active: docSnapshot.data().active ?? "",
             rowNum: docSnapshot.data().rowNum ?? undefined,
           })),
@@ -320,6 +321,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: docSnapshot.data().phone ?? "",
           amcMonth: docSnapshot.data().amcMonth ?? "",
           amcPrice: docSnapshot.data().amcPrice ?? "",
+          balance: docSnapshot.data().balance ?? "",
           rowNum: docSnapshot.data().rowNum ?? undefined,
           createdAt: docSnapshot.data().createdAt ?? null,
         }));
@@ -484,6 +486,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           phone: docSnapshot.data().phone ?? "",
           amcMonth: docSnapshot.data().amcMonth ?? "",
           amcPrice: docSnapshot.data().amcPrice ?? "",
+          balance: docSnapshot.data().balance ?? "",
           active: docSnapshot.data().active ?? "",
           rowNum: docSnapshot.data().rowNum ?? undefined,
         })),
