@@ -69,15 +69,6 @@ function parseSheetValues(values: string[][], sheetId: string): (Omit<Customer, 
         rawActive = "Inactive";
       }
 
-      // Auto-extract balance if embedded in legacy price cell (e.g., "2500 Balance 1000" or "2500 Balance-1000")
-      if (!rawBalance && /balance/i.test(rawPrice)) {
-        const match = rawPrice.match(/^(.+?)\s*balance\s*[\:\-]?\s*(\d+.*)$/i);
-        if (match) {
-          rawPrice = match[1].trim();
-          rawBalance = match[2].trim();
-        }
-      }
-
       parsedRows.push({
         name: map["name"] || map["customer"] || "",
         address: map["address"] || "",
@@ -417,13 +408,13 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         type: "inactive" as const,
       }));
 
-    // 3. Sheet customers with "balance" in their price
+    // 3. Sheet customers with non-empty, non-zero balance
     const balance = sheetCustomers
       .filter((c) => {
-        const price = c.amcPrice?.toLowerCase() || "";
-        return price.includes("balance") || price.includes("bal");
+        const bal = c.balance?.trim() || "";
+        return bal !== "" && bal !== "0";
       })
-      .filter((c) => c.active !== "Not") // If they are marked 'Not', they are handled as inactive above
+      .filter((c) => c.active !== "Not" && c.active !== "Inactive")
       .filter((c) => !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name))
       .map((c) => ({
         ...c,
@@ -659,37 +650,6 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
       setCustFormError(err instanceof Error ? err.message : "An error occurred.");
     } finally {
       setCustFormLoading(false);
-    }
-  };
-
-  const handleAutoFixSheetRows = async () => {
-    if (!sheetCustomers.length) return;
-    if (!confirm("This will split any embedded balance amounts into the new Balance column and set status to Active for all rows. Continue?")) return;
-    
-    setSheetLoading(true);
-    try {
-      let count = 0;
-      for (const c of sheetCustomers) {
-        if (c.rowNum) {
-          await editCustomerInSheet(c.rowNum, {
-            name: c.name,
-            address: c.address,
-            phone: c.phone,
-            amcMonth: c.amcMonth || "",
-            amcPrice: c.amcPrice || "",
-            balance: c.balance || "",
-            active: c.active || "Active",
-          });
-          count++;
-        }
-      }
-      await fetchSheet();
-      alert(`Successfully processed & synced ${count} rows!`);
-    } catch (err) {
-      console.error("Error auto-fixing sheet rows:", err);
-      alert("Failed to auto-fix sheet rows. Please check Apps Script endpoint connection.");
-    } finally {
-      setSheetLoading(false);
     }
   };
 
@@ -1243,15 +1203,6 @@ function fixSheetColumns() {
                         <p className="text-xs text-slate-500">View, search, add, or edit customers in the synced Google Sheet.</p>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={handleAutoFixSheetRows}
-                          disabled={sheetLoading || !sheetCustomers.length}
-                          title="Split legacy balance values into new Balance column and set all statuses to Active in Google Sheets"
-                          className="rounded-2xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-                        >
-                          <span>✨</span> Auto-Fix Sheet Columns
-                        </button>
                         <button
                           type="button"
                           onClick={handleOpenAddCustomer}
