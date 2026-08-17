@@ -395,16 +395,38 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   }, [sheetSearch]);
 
   const displayInactiveCustomers = useMemo(() => {
-    // 1. Manually marked inactive customers
-    const manual = inactiveCustomers.map((ic) => ({
-      ...ic,
-      type: "inactive" as const,
-    }));
+    // 1. Manually marked inactive customers (cross-referenced with sheet customers)
+    const manual = inactiveCustomers
+      .map((ic) => {
+        const sheetMatch =
+          sheetCustomers.find((c) => c.phone && c.phone === ic.phone) ||
+          sheetCustomers.find((c) => c.name && c.name.toLowerCase() === ic.name.toLowerCase());
+        return {
+          ...ic,
+          balance: sheetMatch ? sheetMatch.balance : ic.balance,
+          active: sheetMatch ? sheetMatch.active : "Inactive",
+          rowNum: sheetMatch?.rowNum ?? ic.rowNum,
+          type: "inactive" as const,
+        };
+      })
+      .filter((c) => {
+        const bal = c.balance?.trim() || "";
+        const hasBalance = bal !== "" && bal !== "0";
+        const isInactive = c.active === "Inactive" || c.active === "Not";
+        return isInactive || hasBalance;
+      });
 
-    // 2. Sheet customers with active === "Not"
+    // 2. Sheet customers with active === "Not" or "Inactive"
     const notActiveSheet = sheetCustomers
-      .filter((c) => c.active === "Not")
-      .filter((c) => !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name))
+      .filter((c) => c.active === "Not" || c.active === "Inactive")
+      .filter(
+        (c) =>
+          !manual.some(
+            (m) =>
+              (c.phone && m.phone === c.phone) ||
+              (c.name && m.name.toLowerCase() === c.name.toLowerCase()),
+          ),
+      )
       .map((c) => ({
         ...c,
         type: "inactive" as const,
@@ -417,7 +439,14 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         return bal !== "" && bal !== "0";
       })
       .filter((c) => c.active !== "Not" && c.active !== "Inactive")
-      .filter((c) => !inactiveCustomers.some((ic) => ic.phone === c.phone && ic.name === c.name))
+      .filter(
+        (c) =>
+          !manual.some(
+            (m) =>
+              (c.phone && m.phone === c.phone) ||
+              (c.name && m.name.toLowerCase() === c.name.toLowerCase()),
+          ),
+      )
       .map((c) => ({
         ...c,
         type: "balance" as const,
@@ -639,6 +668,37 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
           balance: custFormBalance.trim(),
           active: custFormActive,
         });
+
+        // Sync matching document in Firestore inactive_customers collection
+        const cleanPhone = custFormPhone.trim();
+        const cleanName = custFormName.trim().toLowerCase();
+        const matchingInactive = inactiveCustomers.find(
+          (ic) =>
+            (cleanPhone && ic.phone === cleanPhone) ||
+            (cleanName && ic.name.toLowerCase() === cleanName) ||
+            (customerEditRow && ic.rowNum === customerEditRow)
+        );
+
+        if (matchingInactive) {
+          const isNowActiveAndNoBalance =
+            custFormActive === "Active" &&
+            (!custFormBalance.trim() || custFormBalance.trim() === "0");
+
+          if (isNowActiveAndNoBalance) {
+            await deleteDoc(doc(db, "inactive_customers", matchingInactive.id));
+          } else {
+            await updateDoc(doc(db, "inactive_customers", matchingInactive.id), {
+              name: custFormName.trim(),
+              address: custFormAddress.trim(),
+              phone: custFormPhone.trim(),
+              amcMonth: custFormAmcMonth.trim(),
+              amcPrice: custFormAmcPrice.trim(),
+              balance: custFormBalance.trim(),
+              rowNum: customerEditRow,
+            });
+          }
+        }
+
         setCustFormSuccess("Customer successfully updated in Google Sheet!");
       }
 
@@ -696,7 +756,16 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     try {
       const inactiveCust = inactiveCustomers.find((ic) => ic.id === id);
       if (inactiveCust) {
-        const rowNum = inactiveCust.rowNum;
+        let rowNum = inactiveCust.rowNum;
+        if (!rowNum) {
+          const sheetMatch = sheetCustomers.find(
+            (c) =>
+              (inactiveCust.phone && c.phone === inactiveCust.phone) ||
+              (inactiveCust.name && c.name.toLowerCase() === inactiveCust.name.toLowerCase())
+          );
+          rowNum = sheetMatch?.rowNum;
+        }
+
         if (rowNum) {
           await editCustomerInSheet(rowNum, {
             name: inactiveCust.name || "",
@@ -1206,18 +1275,37 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
   } else if (data.action === "edit") {
     var rowNum = parseInt(data.rowNum);
-    if (!rowNum || rowNum < 2) {
-      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Invalid rowNum" }))
+    var targetRow = -1;
+    var allRows = sheet.getDataRange().getValues();
+
+    if (rowNum && rowNum >= 2 && rowNum <= allRows.length) {
+      targetRow = rowNum;
+    } else {
+      var searchPhone = (data.phone || "").toString().trim().toLowerCase();
+      var searchName = (data.name || "").toString().trim().toLowerCase();
+      for (var r = 1; r < allRows.length; r++) {
+        var rowPhone = (allRows[r][phoneCol - 1] || "").toString().trim().toLowerCase();
+        var rowName = (allRows[r][nameCol - 1] || "").toString().trim().toLowerCase();
+        if ((searchPhone && rowPhone === searchPhone) || (searchName && rowName === searchName)) {
+          targetRow = r + 1;
+          break;
+        }
+      }
+    }
+
+    if (targetRow < 2) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Row not found for editing" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    if (data.name !== undefined) sheet.getRange(rowNum, nameCol).setValue(data.name);
-    if (data.address !== undefined) sheet.getRange(rowNum, addrCol).setValue(data.address);
-    if (data.phone !== undefined) sheet.getRange(rowNum, phoneCol).setValue(data.phone);
-    if (data.amcMonth !== undefined) sheet.getRange(rowNum, monthCol).setValue(data.amcMonth);
-    if (data.amcPrice !== undefined) sheet.getRange(rowNum, priceCol).setValue(data.amcPrice);
-    if (data.balance !== undefined) sheet.getRange(rowNum, balanceCol).setValue(data.balance);
-    if (data.active !== undefined) sheet.getRange(rowNum, activeCol).setValue(data.active);
-    return ContentService.createTextOutput(JSON.stringify({ success: true }))
+
+    if (data.name !== undefined) sheet.getRange(targetRow, nameCol).setValue(data.name);
+    if (data.address !== undefined) sheet.getRange(targetRow, addrCol).setValue(data.address);
+    if (data.phone !== undefined) sheet.getRange(targetRow, phoneCol).setValue(data.phone);
+    if (data.amcMonth !== undefined) sheet.getRange(targetRow, monthCol).setValue(data.amcMonth);
+    if (data.amcPrice !== undefined) sheet.getRange(targetRow, priceCol).setValue(data.amcPrice);
+    if (data.balance !== undefined) sheet.getRange(targetRow, balanceCol).setValue(data.balance);
+    if (data.active !== undefined) sheet.getRange(targetRow, activeCol).setValue(data.active);
+    return ContentService.createTextOutput(JSON.stringify({ success: true, rowNum: targetRow }))
       .setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Invalid action" }))

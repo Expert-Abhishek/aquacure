@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "AquaCure",
+    "slug": "my-app",
+    "version": "1.0.0",
+    "android": {
+      "package": "com.abhishekchauhan.myapp",
+      "versionCode": 13
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f2459486-96cb-4291-be41-5b126b74620c"
+      }
+    }
+  }
+}
