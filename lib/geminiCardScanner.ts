@@ -20,7 +20,11 @@ export interface ExtractedCardData {
   matchedCustomer?: Customer;
 }
 
-export const DEFAULT_GEMINI_API_KEY = "AIzaSyBRIIzjDvFfcht2G443mSxOw3sszAlFY7k";
+export const DEFAULT_GEMINI_API_KEY =
+  process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
+  process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
+  process.env.GEMINI_API_KEY ||
+  "AIzaSyBRIIzjDvFfcht2G443mSxOw3sszAlFY7k";
 
 const MONTH_NAMES = [
   "January",
