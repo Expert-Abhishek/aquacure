@@ -17,6 +17,12 @@ import TaskBoard from "./TaskBoard";
 import QueryCenter from "./QueryCenter";
 import PaymentBoard from "./PaymentBoard";
 import PumpBoard from "./PumpBoard";
+import CardScannerModal from "./CardScannerModal";
+import {
+  DEFAULT_GEMINI_API_KEY,
+  extractCardDataWithGemini,
+  fileToBase64,
+} from "@/lib/geminiCardScanner";
 import { Input } from "./ui";
 import {
   ADMIN_USER,
@@ -132,6 +138,10 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   // Configurable spreadsheet states
   const [sheetId, setSheetId] = useState(loadSetting("sheetId", SHEET_ID_CONST));
   const [sheetApiKey, setSheetApiKey] = useState(loadSetting("sheetApiKey", SHEET_API_KEY));
+  const [geminiApiKey, setGeminiApiKey] = useState(loadSetting("geminiApiKey", DEFAULT_GEMINI_API_KEY));
+
+  const [showCardScannerModal, setShowCardScannerModal] = useState(false);
+  const [singleScanLoading, setSingleScanLoading] = useState(false);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sheetCustomers, setSheetCustomers] = useState<Customer[]>([]);
@@ -624,6 +634,29 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setCustFormError("");
     setCustFormSuccess("");
     setShowCustomerModal(true);
+  };
+
+  const handleSingleCardScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSingleScanLoading(true);
+    setCustFormError("");
+    try {
+      const base64 = await fileToBase64(file);
+      const data = await extractCardDataWithGemini(base64, geminiApiKey);
+      if (data.name) setCustFormName(data.name);
+      if (data.address) setCustFormAddress(data.address);
+      if (data.phone) setCustFormPhone(data.phone);
+      if (data.amcMonth) setCustFormAmcMonth(data.amcMonth);
+      if (data.amcPrice) setCustFormAmcPrice(data.amcPrice);
+      if (data.balance !== undefined) setCustFormBalance(data.balance);
+      setCustFormSuccess("Card scanned and fields auto-filled successfully!");
+    } catch (err) {
+      setCustFormError(err instanceof Error ? err.message : "Failed to scan card image.");
+    } finally {
+      setSingleScanLoading(false);
+      e.target.value = "";
+    }
   };
 
   const handleSaveCustomer = async (e: React.FormEvent) => {
@@ -1195,7 +1228,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
                   </span>
                 </summary>
                 <div className="mt-6 border-t border-slate-100 pt-6 space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-4 sm:grid-cols-3">
                     <Input
                       label="Spreadsheet ID"
                       value={sheetId}
@@ -1213,6 +1246,15 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
                         saveSetting("sheetApiKey", v);
                       }}
                       placeholder="API Key"
+                    />
+                    <Input
+                      label="Gemini AI Vision Key (Card OCR)"
+                      value={geminiApiKey}
+                      onChange={(v) => {
+                        setGeminiApiKey(v);
+                        saveSetting("geminiApiKey", v);
+                      }}
+                      placeholder="Gemini API Key"
                     />
                   </div>
 
@@ -1344,6 +1386,14 @@ function fixSheetColumns() {
                     <p className="text-xs text-slate-500">View, search, add, or edit customers in the synced Google Sheet.</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowCardScannerModal(true)}
+                      className="rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:opacity-95 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>📸</span>
+                      <span>AI Card Scanner (Bulk / Single)</span>
+                    </button>
                     <button
                       type="button"
                       onClick={handleOpenAddCustomer}
@@ -1781,6 +1831,22 @@ function fixSheetColumns() {
                 </button>
               </div>
 
+              <div className="flex items-center justify-between bg-blue-50 p-3 rounded-2xl border border-blue-100 mb-4">
+                <div className="text-xs text-blue-900 font-medium">
+                  ✨ Have a card photo? Auto-fill with AI:
+                </div>
+                <label className="cursor-pointer rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-500 transition shadow-sm">
+                  {singleScanLoading ? "Extracting..." : "📷 Upload Card"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={singleScanLoading}
+                    onChange={handleSingleCardScan}
+                  />
+                </label>
+              </div>
+
               <form onSubmit={handleSaveCustomer} className="space-y-4">
                 <Input
                   label="Customer Name"
@@ -1863,6 +1929,17 @@ function fixSheetColumns() {
             </div>
           </div>
         )}
+
+        {/* Card Scanner Batch Modal */}
+        <CardScannerModal
+          isOpen={showCardScannerModal}
+          onClose={() => setShowCardScannerModal(false)}
+          existingCustomers={sheetCustomers}
+          onAddCustomer={addCustomerToSheet}
+          onEditCustomer={editCustomerInSheet}
+          onRefreshData={fetchSheet}
+          geminiApiKey={geminiApiKey}
+        />
 
         </main>
       </div>
