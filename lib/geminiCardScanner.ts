@@ -235,7 +235,7 @@ OUTPUT STRICTLY VALID JSON ONLY (no markdown backticks, no extra text):
   };
 
   const keyToUse = apiKey.trim() || DEFAULT_GEMINI_API_KEY;
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keyToUse}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`;
 
   let response = await fetch(endpoint, {
     method: "POST",
@@ -243,9 +243,9 @@ OUTPUT STRICTLY VALID JSON ONLY (no markdown backticks, no extra text):
     body: JSON.stringify(requestBody),
   });
 
-  // Fallback to gemini-1.5-flash if 2.5-flash is not available
-  if (!response.ok) {
-    const fallbackEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`;
+  // Fallback to gemini-2.0-flash if needed
+  if (!response.ok && response.status === 404) {
+    const fallbackEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${keyToUse}`;
     response = await fetch(fallbackEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -255,10 +255,11 @@ OUTPUT STRICTLY VALID JSON ONLY (no markdown backticks, no extra text):
 
   if (!response.ok) {
     const errorJson = await response.json().catch(() => ({}));
-    throw new Error(
-      errorJson?.error?.message ||
-        `Gemini API returned HTTP ${response.status}: ${response.statusText}`
-    );
+    const message = errorJson?.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+    if (message.includes("leaked") || response.status === 403) {
+      throw new Error("Google Gemini API Key invalid ya leak hone ki wajah se block ho gayi hai. Kripya Google AI Studio se nayi free key banakar Settings me paste karein.");
+    }
+    throw new Error(`Gemini API Error: ${message}`);
   }
 
   const result = await response.json();

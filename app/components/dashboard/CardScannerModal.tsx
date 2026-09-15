@@ -37,6 +37,7 @@ interface CardScannerModalProps {
   ) => Promise<void>;
   onRefreshData: () => Promise<void>;
   geminiApiKey?: string;
+  onApiKeyChange?: (key: string) => void;
 }
 
 const MONTH_OPTIONS = [
@@ -63,7 +64,10 @@ export default function CardScannerModal({
   onEditCustomer,
   onRefreshData,
   geminiApiKey = DEFAULT_GEMINI_API_KEY,
+  onApiKeyChange,
 }: CardScannerModalProps) {
+  const [currentKey, setCurrentKey] = useState<string>(geminiApiKey);
+  const [showKeyInput, setShowKeyInput] = useState<boolean>(false);
   const [items, setItems] = useState<ExtractedCardData[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedMonth, setSelectedMonth] = useState<string>("Auto Detect");
@@ -131,7 +135,7 @@ export default function CardScannerModal({
         try {
           const extracted = await extractCardDataWithGemini(
             item.imagePreview,
-            geminiApiKey,
+            currentKey,
             selectedMonth !== "Auto Detect" ? selectedMonth : undefined
           );
 
@@ -342,13 +346,50 @@ export default function CardScannerModal({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition cursor-pointer"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowKeyInput((v) => !v)}
+              className="rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 transition cursor-pointer flex items-center gap-1"
+            >
+              <span>🔑</span>
+              <span>{showKeyInput ? "Hide Key" : "API Key"}</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
         </div>
+
+        {/* API Key Edit Drawer */}
+        {showKeyInput && (
+          <div className="bg-slate-900 px-6 py-3 border-b border-slate-800 text-white flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-1 max-w-xl">
+              <span className="text-xs text-slate-300 font-medium">Gemini API Key:</span>
+              <input
+                type="text"
+                value={currentKey}
+                onChange={(e) => {
+                  const val = e.target.value.trim();
+                  setCurrentKey(val);
+                  if (onApiKeyChange) onApiKeyChange(val);
+                }}
+                placeholder="Paste your Google AI Studio API key here"
+                className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white focus:border-blue-400 outline-none font-mono"
+              />
+            </div>
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+            >
+              <span>Get Free Gemini Key ↗</span>
+            </a>
+          </div>
+        )}
 
         {/* Upload Bar & Controls */}
         <div className="border-b border-slate-100 bg-slate-50 p-4 sm:px-6 flex flex-wrap items-center justify-between gap-4">
@@ -369,6 +410,16 @@ export default function CardScannerModal({
               <span>➕</span>
               <span>Upload Card Images (Max 100)</span>
             </button>
+
+            {errorCount > 0 && !isProcessing && (
+              <button
+                onClick={() => processQueue(items.filter((it) => it.status === "error"))}
+                className="rounded-2xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 transition cursor-pointer flex items-center gap-1"
+              >
+                <span>↻</span>
+                <span>Retry Failed ({errorCount})</span>
+              </button>
+            )}
 
             <div className="flex items-center gap-2 text-xs font-medium text-slate-700 bg-white px-3 py-1.5 rounded-2xl border border-slate-200">
               <span>Default Month:</span>

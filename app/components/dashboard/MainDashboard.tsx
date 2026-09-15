@@ -1939,6 +1939,10 @@ function fixSheetColumns() {
           onEditCustomer={editCustomerInSheet}
           onRefreshData={fetchSheet}
           geminiApiKey={geminiApiKey}
+          onApiKeyChange={(k) => {
+            setGeminiApiKey(k);
+            saveSetting("geminiApiKey", k);
+          }}
         />
 
         </main>
