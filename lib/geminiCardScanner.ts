@@ -239,29 +239,47 @@ OUTPUT STRICTLY VALID JSON ONLY (no markdown backticks, no extra text):
   };
 
   const keyToUse = apiKey.trim() || DEFAULT_GEMINI_API_KEY;
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`;
+  const modelsToTry = [
+    "gemini-3.6-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+  ];
 
-  let response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody),
-  });
+  let response: Response | null = null;
+  let lastError: any = null;
 
-  // Fallback to gemini-2.0-flash if needed
-  if (!response.ok && response.status === 404) {
-    const fallbackEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${keyToUse}`;
-    response = await fetch(fallbackEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
-    });
+  for (const modelName of modelsToTry) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${keyToUse}`;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) {
+        break; // Successfully got response from this model
+      }
+
+      // If 404 (model name not found), try next model in priority list
+      if (response.status === 404) {
+        continue;
+      } else {
+        // Other errors (e.g. 403, 400)
+        const errorJson = await response.json().catch(() => ({}));
+        lastError = errorJson?.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+        break;
+      }
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : "Network error";
+    }
   }
 
-  if (!response.ok) {
-    const errorJson = await response.json().catch(() => ({}));
-    const message = errorJson?.error?.message || `HTTP ${response.status}: ${response.statusText}`;
-    if (message.includes("leaked") || response.status === 403) {
-      throw new Error("Google Gemini API Key invalid ya leak hone ki wajah se block ho gayi hai. Kripya Google AI Studio se nayi free key banakar Settings me paste karein.");
+  if (!response || !response.ok) {
+    const message = lastError || (response ? `HTTP ${response.status}: ${response.statusText}` : "Request failed");
+    if (typeof message === "string" && (message.includes("leaked") || response?.status === 403)) {
+      throw new Error("Google Gemini API Key invalid ya block ho gayi hai. Kripya Google AI Studio se nayi free key banakar .env.local ya Settings me paste karein.");
     }
     throw new Error(`Gemini API Error: ${message}`);
   }
