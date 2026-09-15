@@ -79,8 +79,6 @@ export default function CardScannerModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
-
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
@@ -324,6 +322,8 @@ export default function CardScannerModal({
   const newCount = items.filter((it) => it.matchType === "new").length;
   const existingCount = items.filter((it) => it.matchType === "existing").length;
   const errorCount = items.filter((it) => it.status === "error").length;
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 sm:p-6 backdrop-blur-sm overflow-y-auto">
