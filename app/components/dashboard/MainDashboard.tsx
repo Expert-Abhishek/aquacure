@@ -123,7 +123,7 @@ function saveSetting(key: string, value: string): void {
 
 const SHEET_API_KEY = "AIzaSyAREcjS2RERBjhcMiN_SF2hIgMmjZ0H9Cw";
 const SHEET_ID_CONST = "16Pq3hviILIce3ZQ9iMui2QjZgQ4-JAA-itRAKHu4YC8";
-const SHEET_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbylUbVur6v7dG0CwqKml5C-fuMXleARs35I6UILfHAgW17CsdrfbbsuNSAbEaF8SFjT/exec";
+const SHEET_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxiEbKJxZS6hUynX0Ry9_k4IYQXVHYHo1ZoXeWxPzfK0SqYW6lcgq1SNZr4YrX3M7wi/exec";
 const SHEET_RANGE = "customer";
 
 export default function MainDashboard({ initialMenu = "task" }: MainDashboardProps) {
