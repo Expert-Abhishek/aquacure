@@ -553,38 +553,21 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setQuerySearch("");
   };
 
-  const postToAppsScript = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  const postToAppsScript = async (payload: Record<string, unknown>): Promise<void> => {
     if (!SHEET_SCRIPT_URL.trim()) {
       throw new Error("Google Apps Script Web App URL is not configured.");
     }
 
-    const res = await fetch(SHEET_SCRIPT_URL, {
+    // Google Apps Script Web Apps respond with a 302 redirect which causes
+    // CORS errors in browsers when using normal fetch. Using no-cors mode
+    // avoids the CORS block — the response is opaque (unreadable) but the
+    // POST body is still delivered and processed by the script.
+    await fetch(SHEET_SCRIPT_URL, {
       method: "POST",
-      redirect: "follow",
+      mode: "no-cors",
       headers: { "Content-Type": "text/plain" },
       body: JSON.stringify(payload),
     });
-
-    // Google Apps Script redirects (302) – after following, the final response
-    // should be JSON. If we still can't parse it, treat as a network-level
-    // success (the write likely went through but the redirect response was
-    // opaque). Only throw when the script explicitly reports failure.
-    let body: Record<string, unknown> = {};
-    const text = await res.text().catch(() => "");
-    if (text) {
-      try {
-        body = JSON.parse(text);
-      } catch {
-        // Could not parse – response was likely an opaque redirect.
-        // We treat this as success because Apps Script executed the write
-        // before issuing the redirect.
-        console.warn("Apps Script response was not JSON:", text.slice(0, 200));
-      }
-    }
-    if (body.success === false) {
-      throw new Error((body.error as string) || "Apps Script reported failure.");
-    }
-    return body;
   };
 
   const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; balance?: string; active: string }) => {
@@ -1859,21 +1842,23 @@ function fixSheetColumns() {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between bg-blue-50 p-3 rounded-2xl border border-blue-100 mb-4">
-                <div className="text-xs text-blue-900 font-medium">
-                  ✨ Have a card photo? Auto-fill with AI:
+              {customerModalMode === "add" && (
+                <div className="flex items-center justify-between bg-blue-50 p-3 rounded-2xl border border-blue-100 mb-4">
+                  <div className="text-xs text-blue-900 font-medium">
+                    ✨ Have a card photo? Auto-fill with AI:
+                  </div>
+                  <label className="cursor-pointer rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-500 transition shadow-sm">
+                    {singleScanLoading ? "Extracting..." : "📷 Upload Card"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={singleScanLoading}
+                      onChange={handleSingleCardScan}
+                    />
+                  </label>
                 </div>
-                <label className="cursor-pointer rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-500 transition shadow-sm">
-                  {singleScanLoading ? "Extracting..." : "📷 Upload Card"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    disabled={singleScanLoading}
-                    onChange={handleSingleCardScan}
-                  />
-                </label>
-              </div>
+              )}
 
               <form onSubmit={handleSaveCustomer} className="space-y-4">
                 <Input
