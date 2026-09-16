@@ -553,57 +553,65 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
     setQuerySearch("");
   };
 
-  const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; balance?: string; active: string }) => {
+  const postToAppsScript = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
     if (!SHEET_SCRIPT_URL.trim()) {
       throw new Error("Google Apps Script Web App URL is not configured.");
     }
 
     const res = await fetch(SHEET_SCRIPT_URL, {
       method: "POST",
+      redirect: "follow",
       headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({
-        action: "add",
-        name: customer.name,
-        address: customer.address,
-        phone: customer.phone,
-        amcMonth: customer.amcMonth,
-        amcPrice: customer.amcPrice,
-        balance: customer.balance ?? "",
-        active: customer.active,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    const body = await res.json().catch(() => ({}));
-    if (body.success === false) {
-      throw new Error(body.error || "Failed to add customer to Google Sheet.");
+    // Google Apps Script redirects (302) – after following, the final response
+    // should be JSON. If we still can't parse it, treat as a network-level
+    // success (the write likely went through but the redirect response was
+    // opaque). Only throw when the script explicitly reports failure.
+    let body: Record<string, unknown> = {};
+    const text = await res.text().catch(() => "");
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        // Could not parse – response was likely an opaque redirect.
+        // We treat this as success because Apps Script executed the write
+        // before issuing the redirect.
+        console.warn("Apps Script response was not JSON:", text.slice(0, 200));
+      }
     }
+    if (body.success === false) {
+      throw new Error((body.error as string) || "Apps Script reported failure.");
+    }
+    return body;
+  };
+
+  const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; balance?: string; active: string }) => {
+    await postToAppsScript({
+      action: "add",
+      name: customer.name,
+      address: customer.address,
+      phone: customer.phone,
+      amcMonth: customer.amcMonth,
+      amcPrice: customer.amcPrice,
+      balance: customer.balance ?? "",
+      active: customer.active,
+    });
   };
 
   const editCustomerInSheet = async (rowNum: number, customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; balance?: string; active: string }) => {
-    if (!SHEET_SCRIPT_URL.trim()) {
-      throw new Error("Google Apps Script Web App URL is not configured.");
-    }
-
-    const res = await fetch(SHEET_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({
-        action: "edit",
-        rowNum,
-        name: customer.name,
-        address: customer.address,
-        phone: customer.phone,
-        amcMonth: customer.amcMonth,
-        amcPrice: customer.amcPrice,
-        balance: customer.balance ?? "",
-        active: customer.active,
-      }),
+    await postToAppsScript({
+      action: "edit",
+      rowNum,
+      name: customer.name,
+      address: customer.address,
+      phone: customer.phone,
+      amcMonth: customer.amcMonth,
+      amcPrice: customer.amcPrice,
+      balance: customer.balance ?? "",
+      active: customer.active,
     });
-
-    const body = await res.json().catch(() => ({}));
-    if (body.success === false) {
-      throw new Error(body.error || "Failed to update customer in Google Sheet.");
-    }
   };
 
   const handleOpenAddCustomer = () => {
@@ -733,9 +741,29 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         }
 
         setCustFormSuccess("Customer successfully updated in Google Sheet!");
+
+        // Immediately update local state so customer list reflects the change
+        setSheetCustomers((prev) =>
+          prev.map((c) =>
+            c.rowNum === customerEditRow
+              ? {
+                  ...c,
+                  name: custFormName.trim(),
+                  address: custFormAddress.trim(),
+                  phone: custFormPhone.trim(),
+                  amcMonth: custFormAmcMonth.trim(),
+                  amcPrice: custFormAmcPrice.trim(),
+                  balance: custFormBalance.trim(),
+                  active: custFormActive,
+                }
+              : c,
+          ),
+        );
       }
 
-      // Reload sheet details to sync back to Firestore
+      // Wait a moment for Google Sheets API to propagate the write,
+      // then reload sheet data to sync back to Firestore
+      await new Promise((r) => setTimeout(r, 2000));
       await fetchSheet();
 
       // Close modal after delay

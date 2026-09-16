@@ -66,7 +66,7 @@ export default function CardScannerModal({
   geminiApiKey = DEFAULT_GEMINI_API_KEY,
   onApiKeyChange,
 }: CardScannerModalProps) {
-  const [currentKey, setCurrentKey] = useState<string>(geminiApiKey);
+  const [currentKey, setCurrentKey] = useState<string>(geminiApiKey ?? "");
   const [showKeyInput, setShowKeyInput] = useState<boolean>(false);
   const [items, setItems] = useState<ExtractedCardData[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
