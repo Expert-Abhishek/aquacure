@@ -159,7 +159,7 @@ export function fileToBase64(file: File): Promise<string> {
  */
 export async function extractCardDataWithGemini(
   base64DataUrl: string,
-  apiKey: string = DEFAULT_GEMINI_API_KEY,
+  apiKey: string = DEFAULT_GEMINI_API_KEY ?? "",
   defaultMonth?: string
 ): Promise<{
   name: string;

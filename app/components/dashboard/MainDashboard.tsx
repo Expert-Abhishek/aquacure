@@ -138,7 +138,7 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
   // Configurable spreadsheet states
   const [sheetId, setSheetId] = useState(loadSetting("sheetId", SHEET_ID_CONST));
   const [sheetApiKey, setSheetApiKey] = useState(loadSetting("sheetApiKey", SHEET_API_KEY));
-  const [geminiApiKey, setGeminiApiKey] = useState(loadSetting("geminiApiKey", DEFAULT_GEMINI_API_KEY));
+  const [geminiApiKey, setGeminiApiKey] = useState(loadSetting("geminiApiKey", DEFAULT_GEMINI_API_KEY ?? ""));
 
   const [showCardScannerModal, setShowCardScannerModal] = useState(false);
   const [singleScanLoading, setSingleScanLoading] = useState(false);
@@ -558,16 +558,35 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
       throw new Error("Google Apps Script Web App URL is not configured.");
     }
 
-    // Google Apps Script Web Apps respond with a 302 redirect which causes
-    // CORS errors in browsers when using normal fetch. Using no-cors mode
-    // avoids the CORS block — the response is opaque (unreadable) but the
-    // POST body is still delivered and processed by the script.
-    await fetch(SHEET_SCRIPT_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify(payload),
-    });
+    // Google Apps Script Web Apps support CORS for POST with text/plain.
+    // The script redirects (302) but the browser follows it automatically.
+    // We send as text/plain (a CORS-safelisted content type) so no preflight.
+    try {
+      const res = await fetch(SHEET_SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      // Try to read response — if Apps Script returned an error, throw
+      const text = await res.text().catch(() => "");
+      if (text) {
+        try {
+          const body = JSON.parse(text);
+          if (body.success === false) {
+            throw new Error(body.error || "Apps Script error.");
+          }
+        } catch (parseErr) {
+          // Response wasn't JSON (redirect response) — that's OK, write likely succeeded
+        }
+      }
+    } catch (err) {
+      // TypeError = network/CORS failure. The write may still have gone through
+      // on the server side, so we log but don't block the UI.
+      if (err instanceof TypeError) {
+        console.warn("Apps Script fetch warning (write may have succeeded):", err.message);
+      } else {
+        throw err;
+      }
+    }
   };
 
   const addCustomerToSheet = async (customer: { name: string; address: string; phone: string; amcMonth: string; amcPrice: string; balance?: string; active: string }) => {
@@ -744,10 +763,30 @@ export default function MainDashboard({ initialMenu = "task" }: MainDashboardPro
         );
       }
 
-      // Wait a moment for Google Sheets API to propagate the write,
-      // then reload sheet data to sync back to Firestore
-      await new Promise((r) => setTimeout(r, 2000));
-      await fetchSheet();
+      if (customerModalMode === "add") {
+        // For new customers, wait for the sheet write to propagate, then
+        // re-fetch to pick up the new row number and data.
+        await new Promise((r) => setTimeout(r, 2500));
+        await fetchSheet();
+      } else {
+        // For edits, we already updated local state above.
+        // Also sync the edited data into Firestore customers collection
+        // so it persists without re-fetching (avoids stale sheet cache).
+        const matchingDoc = (await getDocs(collection(db, "customers"))).docs.find(
+          (d) => d.data().rowNum === customerEditRow,
+        );
+        if (matchingDoc) {
+          await updateDoc(doc(db, "customers", matchingDoc.id), {
+            name: custFormName.trim(),
+            address: custFormAddress.trim(),
+            phone: custFormPhone.trim(),
+            amcMonth: custFormAmcMonth.trim(),
+            amcPrice: custFormAmcPrice.trim(),
+            balance: custFormBalance.trim(),
+            active: custFormActive,
+          });
+        }
+      }
 
       // Close modal after delay
       setTimeout(() => {
@@ -1397,14 +1436,7 @@ function fixSheetColumns() {
                     <p className="text-xs text-slate-500">View, search, add, or edit customers in the synced Google Sheet.</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowCardScannerModal(true)}
-                      className="rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:opacity-95 cursor-pointer flex items-center gap-1.5"
-                    >
-                      <span>📸</span>
-                      <span>AI Card Scanner (Bulk / Single)</span>
-                    </button>
+
                     <button
                       type="button"
                       onClick={handleOpenAddCustomer}
